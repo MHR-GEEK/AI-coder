@@ -35,10 +35,13 @@ import {
   RefreshCcw,
   Search,
   Send,
+  Settings,
   Sparkles,
   Square,
+  Star,
   Sun,
   Trash2,
+  Upload,
   X
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -94,8 +97,30 @@ type Conversation = {
   title: string;
   messages: Message[];
   pinned: boolean;
+  favorite: boolean;
+  folder: string;
   createdAt: number;
   updatedAt: number;
+};
+
+type ChatSettings = {
+  provider: string;
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  accent: string;
+  fontSize: number;
+  animations: boolean;
+};
+
+type ApiStatus = {
+  provider?: string;
+  currentModel?: string;
+  apiStatus?: string;
+  responseTime?: number;
+  deploymentEnvironment?: string;
+  buildVersion?: string;
+  missing?: string[];
 };
 
 type MessagePart =
@@ -109,8 +134,21 @@ const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp
 const MAX_IMAGE_SIDE = 1600;
 const IMAGE_QUALITY = 0.88;
 const STORAGE_KEY = "haryx-ai-coder-conversations";
+const SETTINGS_KEY = "haryx-ai-coder-settings";
+const DB_NAME = "haryx-ai-coder-db";
+const DB_VERSION = 1;
+const STORE_NAME = "conversations";
 const DEVELOPER_REPLY =
   "HARYX AI Coder was built by HARYX, Founder & Developer of HARYX AI Coder.\n\nGitHub: https://github.com/MHR-GEEK\nInstagram: https://www.instagram.com/md_haris_raza_/";
+const DEFAULT_SETTINGS: ChatSettings = {
+  provider: "ollama",
+  model: "gpt-oss:120b",
+  temperature: 0.35,
+  maxTokens: 4096,
+  accent: "#35f7d2",
+  fontSize: 16,
+  animations: true
+};
 
 function uid() {
   return crypto.randomUUID();
@@ -123,9 +161,57 @@ function createConversation(title = "New HARYX Chat"): Conversation {
     title,
     messages: [],
     pinned: false,
+    favorite: false,
+    folder: "Recent",
     createdAt: now,
     updatedAt: now
   };
+}
+
+function normalizeConversation(conversation: Partial<Conversation>): Conversation {
+  return {
+    id: conversation.id || uid(),
+    title: conversation.title || "Imported Chat",
+    messages: conversation.messages || [],
+    pinned: Boolean(conversation.pinned),
+    favorite: Boolean(conversation.favorite),
+    folder: conversation.folder || "Recent",
+    createdAt: conversation.createdAt || Date.now(),
+    updatedAt: conversation.updatedAt || Date.now()
+  };
+}
+
+function openConversationDb() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME, { keyPath: "id" });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function readConversationsFromDb() {
+  const db = await openConversationDb();
+  return new Promise<Conversation[]>((resolve, reject) => {
+    const request = db.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).getAll();
+    request.onsuccess = () => resolve((request.result as Partial<Conversation>[]).map(normalizeConversation));
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function writeConversationsToDb(conversations: Conversation[]) {
+  const db = await openConversationDb();
+  return new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    store.clear();
+    conversations.forEach((conversation) => store.put(conversation));
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
 }
 
 function isDeveloperQuestion(content: string) {
@@ -447,8 +533,13 @@ export default function Home() {
   const [liveTranscript, setLiveTranscript] = useState("");
   const [voiceError, setVoiceError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [settings, setSettings] = useState<ChatSettings>(DEFAULT_SETTINGS);
+  const [apiStatus, setApiStatus] = useState<ApiStatus>({});
   const chatRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const importRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
@@ -461,43 +552,82 @@ export default function Home() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-  }, [theme]);
+    document.documentElement.style.setProperty("--accent", settings.accent);
+    document.documentElement.style.fontSize = `${settings.fontSize}px`;
+    document.documentElement.dataset.motion = settings.animations ? "on" : "off";
+  }, [settings.accent, settings.animations, settings.fontSize, theme]);
 
   useEffect(() => {
-    const saved = localStorage.getItem("ai-coder-chat");
-    const savedConversations = localStorage.getItem(STORAGE_KEY);
-    try {
-      if (savedConversations) {
-        const parsed = JSON.parse(savedConversations) as Conversation[];
-        const normalized = parsed.length ? parsed : [createConversation()];
-        setConversations(normalized);
-        setActiveConversationId(normalized[0].id);
-        return;
+    const savedSettings = localStorage.getItem(SETTINGS_KEY);
+    if (savedSettings) {
+      try {
+        setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(savedSettings) });
+      } catch {
+        localStorage.removeItem(SETTINGS_KEY);
       }
-
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const migrated = createConversation(parsed.title || "AI Coder Chat");
-        migrated.messages = parsed.messages || [];
-        setConversations([migrated]);
-        setActiveConversationId(migrated.id);
-        localStorage.removeItem("ai-coder-chat");
-        return;
-      }
-
-      const initial = createConversation();
-      setConversations([initial]);
-      setActiveConversationId(initial.id);
-    } catch {
-      const initial = createConversation();
-      setConversations([initial]);
-      setActiveConversationId(initial.id);
     }
+
+    readConversationsFromDb()
+      .then((stored) => {
+        if (stored.length) {
+          const normalized = stored.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
+          setConversations(normalized);
+          setActiveConversationId(normalized[0].id);
+          return;
+        }
+
+        const saved = localStorage.getItem("ai-coder-chat");
+        const savedConversations = localStorage.getItem(STORAGE_KEY);
+        if (savedConversations) {
+          const parsed = JSON.parse(savedConversations) as Partial<Conversation>[];
+          const normalized = parsed.length ? parsed.map(normalizeConversation) : [createConversation()];
+          setConversations(normalized);
+          setActiveConversationId(normalized[0].id);
+          writeConversationsToDb(normalized);
+          return;
+        }
+
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          const migrated = createConversation(parsed.title || "AI Coder Chat");
+          migrated.messages = parsed.messages || [];
+          setConversations([migrated]);
+          setActiveConversationId(migrated.id);
+          localStorage.removeItem("ai-coder-chat");
+          writeConversationsToDb([migrated]);
+          return;
+        }
+
+        const initial = createConversation();
+        setConversations([initial]);
+        setActiveConversationId(initial.id);
+        writeConversationsToDb([initial]);
+      })
+      .catch(() => {
+        const initial = createConversation();
+        setConversations([initial]);
+        setActiveConversationId(initial.id);
+      });
   }, []);
 
   useEffect(() => {
-    if (conversations.length) localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+    if (conversations.length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+      writeConversationsToDb(conversations).catch(() => setBackendStatus("needs-setup"));
+    }
   }, [conversations]);
+
+  useEffect(() => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    const started = performance.now();
+    fetch("/api/status")
+      .then((response) => response.json())
+      .then((data) => setApiStatus({ ...data, responseTime: Math.round(performance.now() - started) }))
+      .catch(() => setApiStatus({ apiStatus: "unreachable" }));
+  }, [backendStatus]);
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
@@ -601,10 +731,43 @@ export default function Home() {
     );
   }
 
+  function toggleFavoriteConversation(id: string) {
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === id ? { ...conversation, favorite: !conversation.favorite, updatedAt: Date.now() } : conversation
+      )
+    );
+  }
+
+  function moveConversationToFolder(id: string) {
+    const folder = window.prompt("Folder name", conversations.find((conversation) => conversation.id === id)?.folder || "Recent");
+    if (!folder) return;
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === id ? { ...conversation, folder, updatedAt: Date.now() } : conversation
+      )
+    );
+  }
+
   function clearAllChats() {
     const fresh = createConversation();
     setConversations([fresh]);
     setActiveConversationId(fresh.id);
+  }
+
+  async function importConversation(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text()) as Partial<Conversation> | Partial<Conversation>[];
+      const incoming = Array.isArray(parsed) ? parsed.map(normalizeConversation) : [normalizeConversation(parsed)];
+      setConversations((current) => [...incoming, ...current]);
+      setActiveConversationId(incoming[0].id);
+    } catch {
+      setBackendStatus("needs-setup");
+    } finally {
+      event.target.value = "";
+    }
   }
 
   const readFiles = useCallback(async (files: FileList | File[]) => {
@@ -738,13 +901,46 @@ export default function Home() {
             type: item.type,
             size: item.size,
             content: item.content
-          }))
+          })),
+          settings: {
+            provider: settings.provider,
+            model: settings.model,
+            temperature: settings.temperature,
+            maxTokens: settings.maxTokens
+          }
         })
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error || "The AI service returned an error.");
 
-      setMessages([...nextMessages, { id: uid(), role: "assistant", content: data.content, timestamp: Date.now() }]);
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ error: "The AI service returned an error." }));
+        throw new Error(data?.error || "The AI service returned an error.");
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("The AI provider returned an empty stream.");
+      const assistantId = uid();
+      setMessages([...nextMessages, { id: assistantId, role: "assistant", content: "", timestamp: Date.now() }]);
+
+      const decoder = new TextDecoder();
+      let streamed = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        streamed += decoder.decode(value, { stream: true });
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId ? { ...message, content: streamed } : message
+          )
+        );
+      }
+
+      if (!streamed.trim()) {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId ? { ...message, content: "I could not read a response from the AI provider.", error: true } : message
+          )
+        );
+      }
       setBackendStatus("connected");
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
@@ -766,7 +962,7 @@ export default function Home() {
       setLoading(false);
       abortRef.current = null;
     }
-  }, [activeConversationId, attachments, input, loading, messages, setMessages]);
+  }, [activeConversationId, attachments, input, loading, messages, setMessages, settings.maxTokens, settings.model, settings.provider, settings.temperature]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {

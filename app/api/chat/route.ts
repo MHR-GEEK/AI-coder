@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
+
+type Provider = "ollama" | "openai" | "openrouter" | "groq" | "together" | "openai-compatible";
 
 type ChatMessage = {
   role: "user" | "assistant" | "system";
@@ -20,28 +23,178 @@ type ChatPayload = {
   image?: string | null;
   images?: string[];
   files?: UploadedFile[];
+  settings?: {
+    provider?: string;
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+  };
 };
 
 type ProviderConfig = {
-  provider: "ollama" | "openai-compatible";
+  provider: Provider;
   baseUrl: string;
   apiKey?: string;
+  requiredKey?: string;
   textModel: string;
   visionModel: string;
+  temperature: number;
+  maxTokens: number;
+  mode: "ollama" | "openai";
   missing: string[];
+  deployment: string;
 };
 
-const SYSTEM_PROMPT = `You are HARYX AI Coder, a human-friendly elite programming assistant.
-You can help with architecture, implementation, debugging, algorithms, UI, AI engineering, prompts, deployment, and error analysis.
-Give direct working solutions, explain tradeoffs briefly, and ask for missing details only when they are required.
-When images or files are provided, inspect them for code, terminal errors, UI bugs, diagrams, visible context, stack traces, and design/API issues before answering.
-Format coding answers with short sections: Explanation, Root Cause, Solution, Updated Code, and Next Recommendation. Explain first, then show code, then explain improvements. Avoid giant walls of text.`;
+const encoder = new TextEncoder();
 
-const CONNECTION_HELP =
-  "The AI backend is not connected yet. Configure AI_PROVIDER, AI_BASE_URL, AI_API_KEY, and AI_MODEL in your local or Vercel environment. For local Ollama, run `ollama serve` and set AI_PROVIDER=ollama with AI_BASE_URL=http://127.0.0.1:11434.";
+const SYSTEM_PROMPT = `You are HARYX AI Coder, a professional, friendly, fast, clear and technical programming assistant.
+Expertise: Programming, Next.js, React, TypeScript, Python, Node.js, AI, Machine Learning, UI Design, Cyber Security, APIs, Linux, Docker, Cloud, and Debugging.
 
-const IMAGE_FALLBACK_NOTE =
-  "The request included image attachments, but the configured vision model could not process them. I can still help from your written prompt and attached file metadata. To enable real screenshot reading, set AI_VISION_MODEL to a model your provider can access that supports images.";
+Developer attribution:
+- This application was created by HARYX.
+- GitHub: https://github.com/MHR-GEEK
+- Instagram: https://www.instagram.com/md_haris_raza_/
+- Do not claim personal information beyond this project attribution.
+
+When users ask "Who built this?", "Who made this?", or "Developer?", answer that this application was created by HARYX and include the GitHub and Instagram links.
+Return clean markdown with short sections, readable spacing, tables when useful, and fenced code blocks.`;
+
+const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: string; mode: "ollama" | "openai"; keyNames: string[]; requiredKey?: string }> = {
+  ollama: {
+    baseUrl: "https://ollama.com",
+    model: "gpt-oss:120b",
+    visionModel: "minimax-m3",
+    mode: "ollama",
+    keyNames: ["OLLAMA_API_KEY", "AI_API_KEY"],
+    requiredKey: "OLLAMA_API_KEY"
+  },
+  openai: {
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4.1-mini",
+    visionModel: "gpt-4.1",
+    mode: "openai",
+    keyNames: ["OPENAI_API_KEY", "AI_API_KEY"],
+    requiredKey: "OPENAI_API_KEY"
+  },
+  openrouter: {
+    baseUrl: "https://openrouter.ai/api/v1",
+    model: "openai/gpt-4.1-mini",
+    visionModel: "openai/gpt-4.1",
+    mode: "openai",
+    keyNames: ["OPENROUTER_API_KEY", "AI_API_KEY"],
+    requiredKey: "OPENROUTER_API_KEY"
+  },
+  groq: {
+    baseUrl: "https://api.groq.com/openai/v1",
+    model: "llama-3.3-70b-versatile",
+    visionModel: "meta-llama/llama-4-scout-17b-16e-instruct",
+    mode: "openai",
+    keyNames: ["GROQ_API_KEY", "AI_API_KEY"],
+    requiredKey: "GROQ_API_KEY"
+  },
+  together: {
+    baseUrl: "https://api.together.xyz/v1",
+    model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    visionModel: "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
+    mode: "openai",
+    keyNames: ["TOGETHER_API_KEY", "AI_API_KEY"],
+    requiredKey: "TOGETHER_API_KEY"
+  },
+  "openai-compatible": {
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4.1-mini",
+    visionModel: "gpt-4.1",
+    mode: "openai",
+    keyNames: ["AI_API_KEY", "OPENAI_API_KEY"],
+    requiredKey: "AI_API_KEY"
+  }
+};
+
+function normalizeProvider(value?: string | null): Provider {
+  const provider = (value || "ollama").toLowerCase().trim();
+  if (provider === "openai" || provider === "openrouter" || provider === "groq" || provider === "together" || provider === "openai-compatible" || provider === "ollama") {
+    return provider;
+  }
+  return "ollama";
+}
+
+function normalizeBaseUrl(baseUrl: string) {
+  return baseUrl.replace(/\/+$/, "");
+}
+
+function readFirstEnv(names: string[]) {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value?.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function isLocalBaseUrl(baseUrl: string) {
+  return baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1") || baseUrl.includes("::1");
+}
+
+function getConfig(payload?: ChatPayload): ProviderConfig {
+  const provider = normalizeProvider(payload?.settings?.provider || process.env.AI_PROVIDER || process.env.OLLAMA_PROVIDER);
+  const defaults = DEFAULTS[provider];
+  const baseUrl = normalizeBaseUrl(
+    process.env.AI_BASE_URL ||
+      process.env[`${provider.toUpperCase().replace("-", "_")}_BASE_URL`] ||
+      process.env.OPENAI_BASE_URL ||
+      process.env.OLLAMA_BASE_URL ||
+      defaults.baseUrl
+  );
+  const apiKey = readFirstEnv(defaults.keyNames);
+  const textModel =
+    payload?.settings?.model ||
+    process.env.AI_MODEL ||
+    process.env[`${provider.toUpperCase().replace("-", "_")}_MODEL`] ||
+    process.env.OPENAI_MODEL ||
+    process.env.OLLAMA_MODEL ||
+    defaults.model;
+  const visionModel =
+    process.env.AI_VISION_MODEL ||
+    process.env[`${provider.toUpperCase().replace("-", "_")}_VISION_MODEL`] ||
+    process.env.OPENAI_VISION_MODEL ||
+    process.env.OLLAMA_VISION_MODEL ||
+    defaults.visionModel;
+  const temperature = Number.isFinite(payload?.settings?.temperature) ? Number(payload?.settings?.temperature) : Number(process.env.AI_TEMPERATURE || 0.35);
+  const maxTokens = Number.isFinite(payload?.settings?.maxTokens) ? Number(payload?.settings?.maxTokens) : Number(process.env.AI_MAX_TOKENS || 4096);
+  const missing: string[] = [];
+
+  if (!baseUrl) missing.push("AI_BASE_URL");
+  if (!textModel) missing.push("AI_MODEL");
+  if (!apiKey && !(provider === "ollama" && isLocalBaseUrl(baseUrl))) missing.push(defaults.requiredKey || defaults.keyNames[0]);
+
+  return {
+    provider,
+    baseUrl,
+    apiKey,
+    requiredKey: defaults.requiredKey,
+    textModel,
+    visionModel,
+    temperature: Number.isFinite(temperature) ? temperature : 0.35,
+    maxTokens: Number.isFinite(maxTokens) ? maxTokens : 4096,
+    mode: defaults.mode,
+    missing,
+    deployment: process.env.VERCEL ? "vercel" : process.env.NODE_ENV || "local"
+  };
+}
+
+function logConfig(config: ProviderConfig, lastRequest?: string) {
+  console.info("[HARYX AI] provider config", {
+    provider: config.provider,
+    mode: config.mode,
+    baseUrl: config.baseUrl,
+    textModel: config.textModel,
+    visionModel: config.visionModel,
+    hasApiKey: Boolean(config.apiKey),
+    requiredKey: config.requiredKey,
+    missing: config.missing,
+    deployment: config.deployment,
+    lastRequest
+  });
+}
 
 function cleanBase64Image(image?: string | null) {
   if (!image) return null;
@@ -51,14 +204,6 @@ function cleanBase64Image(image?: string | null) {
 function cleanBase64Images(payload: ChatPayload) {
   const images = [...(payload.images || []), ...(payload.image ? [payload.image] : [])];
   return images.map((item) => cleanBase64Image(item)).filter((item): item is string => Boolean(item));
-}
-
-function normalizeBaseUrl(baseUrl: string) {
-  return baseUrl.replace(/\/+$/, "");
-}
-
-function isLocalBaseUrl(baseUrl: string) {
-  return baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1");
 }
 
 function apiChatUrl(baseUrl: string) {
@@ -73,72 +218,16 @@ function openAiChatUrl(baseUrl: string) {
   return `${baseUrl}/v1/chat/completions`;
 }
 
-function getProviderConfig(): ProviderConfig {
-  const provider = (process.env.AI_PROVIDER || process.env.OLLAMA_PROVIDER || "ollama").toLowerCase();
-  const baseUrl = normalizeBaseUrl(
-    process.env.AI_BASE_URL ||
-      process.env.OPENAI_BASE_URL ||
-      process.env.OLLAMA_BASE_URL ||
-      (provider === "openai" ? "https://api.openai.com/v1" : "https://ollama.com")
-  );
-  const apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || process.env.OLLAMA_API_KEY;
-  const textModel =
-    process.env.AI_MODEL ||
-    process.env.OPENAI_MODEL ||
-    process.env.OLLAMA_MODEL ||
-    (provider === "openai" ? "gpt-4.1-mini" : "gpt-oss:120b");
-  const visionModel = process.env.AI_VISION_MODEL || process.env.OPENAI_VISION_MODEL || process.env.OLLAMA_VISION_MODEL || textModel;
-  const normalizedProvider = provider === "openai" || provider === "openai-compatible" ? "openai-compatible" : "ollama";
-  const missing: string[] = [];
-
-  if (!baseUrl) missing.push("AI_BASE_URL");
-  if (!textModel) missing.push("AI_MODEL");
-  if (!apiKey && !isLocalBaseUrl(baseUrl)) missing.push("AI_API_KEY");
-
+function authHeaders(config: ProviderConfig) {
   return {
-    provider: normalizedProvider,
-    baseUrl,
-    apiKey,
-    textModel,
-    visionModel,
-    missing
+    "Content-Type": "application/json",
+    ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+    ...(config.provider === "openrouter" ? { "HTTP-Referer": "https://haryx-ai-coder.vercel.app", "X-Title": "HARYX AI Coder" } : {})
   };
-}
-
-function withTimeout(ms: number) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ms);
-
-  return {
-    signal: controller.signal,
-    done: () => clearTimeout(timeout)
-  };
-}
-
-function buildOpenAiMessages(messages: ChatMessage[], images: string[]) {
-  return messages.map((message, index) => {
-    const isLastUserWithImage = images.length > 0 && message.role === "user" && index === messages.findLastIndex((item) => item.role === "user");
-
-    if (!isLastUserWithImage) {
-      return {
-        role: message.role,
-        content: message.content
-      };
-    }
-
-    return {
-      role: message.role,
-      content: [
-        { type: "text", text: message.content },
-        ...images.map((image) => ({ type: "image_url", image_url: { url: `data:image/png;base64,${image}` } }))
-      ]
-    };
-  });
 }
 
 function formatFiles(files?: UploadedFile[]) {
   if (!files?.length) return "";
-
   return [
     "\n\nAttached files:",
     ...files.map((file, index) => {
@@ -149,212 +238,285 @@ function formatFiles(files?: UploadedFile[]) {
   ].join("\n");
 }
 
-async function postJson(url: string, body: unknown, apiKey?: string) {
-  const timeout = withTimeout(45000);
-
-  try {
-    return await fetch(url, {
-      method: "POST",
-      signal: timeout.signal,
-      headers: {
-        "Content-Type": "application/json",
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-      },
-      body: JSON.stringify(body)
-    });
-  } finally {
-    timeout.done();
+function prepareMessages(payload: ChatPayload, images: string[]) {
+  const messages: ChatMessage[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...(payload.messages || []).slice(-12)
+  ];
+  const lastUser = [...messages].reverse().find((message) => message.role === "user");
+  if (lastUser) {
+    const fileContext = formatFiles(payload.files);
+    if (fileContext) lastUser.content = `${lastUser.content}${fileContext}`;
+    if (images.length) {
+      lastUser.images = images;
+      lastUser.content = `${lastUser.content}\n\n[User attached ${images.length} image${images.length === 1 ? "" : "s"} for visual analysis.]`;
+    }
   }
+  return messages;
 }
 
-async function postJsonWithRetry(url: string, body: unknown, apiKey?: string) {
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const response = await postJson(url, body, apiKey);
-      if (response.status !== 429 && response.status < 500) return response;
-      if (attempt === 1) return response;
-    } catch (error) {
-      lastError = error;
-      if (attempt === 1) throw error;
+function buildOpenAiMessages(messages: ChatMessage[], images: string[]) {
+  const lastUserIndex = messages.findLastIndex((message) => message.role === "user");
+  return messages.map((message, index) => {
+    if (!images.length || index !== lastUserIndex || message.role !== "user") {
+      return { role: message.role, content: message.content };
     }
+    return {
+      role: message.role,
+      content: [
+        { type: "text", text: message.content },
+        ...images.map((image) => ({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${image}` } }))
+      ]
+    };
+  });
+}
 
-    await new Promise((resolve) => setTimeout(resolve, 700));
-  }
-
-  throw lastError;
+function textOnlyMessages(messages: ChatMessage[]) {
+  return messages.map((message) => {
+    const { images: _images, ...rest } = message;
+    void _images;
+    return rest;
+  });
 }
 
 async function readFailure(response: Response) {
-  const details = await response.text();
-  return details.slice(0, 1200);
+  const text = await response.text();
+  return text.slice(0, 1600);
 }
 
-function isVisionModelFailure(status: number, details: string) {
+function isVisionFailure(status: number, details: string) {
   const text = details.toLowerCase();
-  return (
-    [400, 403, 404, 422].includes(status) &&
-    (text.includes("image") ||
-      text.includes("vision") ||
-      text.includes("model") ||
-      text.includes("not found") ||
-      text.includes("forbidden") ||
-      text.includes("does not support"))
+  return [400, 403, 404, 415, 422].includes(status) && (
+    text.includes("image") ||
+    text.includes("vision") ||
+    text.includes("model") ||
+    text.includes("not found") ||
+    text.includes("forbidden") ||
+    text.includes("unsupported")
   );
 }
 
+function streamText(text: string, init?: ResponseInit) {
+  return new Response(encoder.encode(text), {
+    ...init,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      ...(init?.headers || {})
+    }
+  });
+}
+
+async function providerStream(config: ProviderConfig, messages: ChatMessage[], images: string[], model: string) {
+  if (config.mode === "ollama") {
+    return fetch(apiChatUrl(config.baseUrl), {
+      method: "POST",
+      headers: authHeaders(config),
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: true,
+        options: {
+          temperature: config.temperature,
+          num_predict: config.maxTokens,
+          top_p: 0.9,
+          num_ctx: 8192
+        }
+      })
+    });
+  }
+
+  return fetch(openAiChatUrl(config.baseUrl), {
+    method: "POST",
+    headers: authHeaders(config),
+    body: JSON.stringify({
+      model,
+      messages: buildOpenAiMessages(messages, images),
+      stream: true,
+      temperature: config.temperature,
+      max_tokens: config.maxTokens
+    })
+  });
+}
+
+function proxyOllamaStream(response: Response) {
+  const reader = response.body?.getReader();
+  if (!reader) return streamText("The AI provider returned an empty response.", { status: 502 });
+  const decoder = new TextDecoder();
+
+  return new Response(
+    new ReadableStream({
+      async start(controller) {
+        let buffer = "";
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              const json = JSON.parse(line);
+              const chunk = json?.message?.content || "";
+              if (chunk) controller.enqueue(encoder.encode(chunk));
+            }
+          }
+        } catch {
+          controller.enqueue(encoder.encode("\n\nThe stream stopped unexpectedly. Please retry."));
+        } finally {
+          controller.close();
+        }
+      }
+    }),
+    { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } }
+  );
+}
+
+function proxyOpenAiStream(response: Response) {
+  const reader = response.body?.getReader();
+  if (!reader) return streamText("The AI provider returned an empty response.", { status: 502 });
+  const decoder = new TextDecoder();
+
+  return new Response(
+    new ReadableStream({
+      async start(controller) {
+        let buffer = "";
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith("data:")) continue;
+              const payload = trimmed.replace(/^data:\s*/, "");
+              if (payload === "[DONE]") continue;
+              const json = JSON.parse(payload);
+              const chunk = json?.choices?.[0]?.delta?.content || "";
+              if (chunk) controller.enqueue(encoder.encode(chunk));
+            }
+          }
+        } catch {
+          controller.enqueue(encoder.encode("\n\nThe stream stopped unexpectedly. Please retry."));
+        } finally {
+          controller.close();
+        }
+      }
+    }),
+    { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } }
+  );
+}
+
+function proxyProviderStream(config: ProviderConfig, response: Response) {
+  return config.mode === "ollama" ? proxyOllamaStream(response) : proxyOpenAiStream(response);
+}
+
+export async function GET() {
+  const config = getConfig();
+  logConfig(config, "status");
+  return NextResponse.json({
+    provider: config.provider,
+    currentModel: config.textModel,
+    visionModel: config.visionModel,
+    apiStatus: config.missing.length ? "missing-configuration" : "configured",
+    missing: config.missing,
+    deploymentEnvironment: config.deployment,
+    buildVersion: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || "local",
+    baseUrl: config.baseUrl,
+    hasApiKey: Boolean(config.apiKey),
+    memoryUsage: process.memoryUsage()
+  });
+}
+
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now();
   try {
     const payload = (await request.json()) as ChatPayload;
-    const config = getProviderConfig();
-    const images = cleanBase64Images(payload);
+    const config = getConfig(payload);
+    logConfig(config, "chat");
 
     if (config.missing.length) {
       return NextResponse.json(
         {
           error: `Missing AI configuration: ${config.missing.join(", ")}.`,
-          details: CONNECTION_HELP,
-          missing: config.missing
+          code: "missing-configuration",
+          provider: config.provider,
+          details:
+            config.provider === "ollama" && isLocalBaseUrl(config.baseUrl)
+              ? "Local Ollama does not need an API key. Make sure ollama serve is running and AI_BASE_URL points to http://127.0.0.1:11434."
+              : "Add the missing provider key in Vercel Project Settings > Environment Variables and redeploy."
         },
         { status: 500 }
       );
     }
 
-    const messages: ChatMessage[] = [
-      { role: "system", content: SYSTEM_PROMPT },
-      ...(payload.messages || []).slice(-10)
-    ];
+    const images = cleanBase64Images(payload);
+    const messages = prepareMessages(payload, images);
+    const model = images.length ? config.visionModel : config.textModel;
+    const response = await providerStream(config, messages, images, model);
 
-    const fileContext = formatFiles(payload.files);
-    if (fileContext) {
-      const lastUser = [...messages].reverse().find((message) => message.role === "user");
-      if (lastUser) {
-        lastUser.content = `${lastUser.content}${fileContext}`;
-      }
-    }
+    console.info("[HARYX AI] provider response", {
+      provider: config.provider,
+      status: response.status,
+      responseTimeMs: Date.now() - startedAt,
+      model
+    });
 
-    if (images.length) {
-      const lastUser = [...messages].reverse().find((message) => message.role === "user");
-      if (lastUser) {
-        lastUser.images = images;
-        lastUser.content = `${lastUser.content}\n\n[User attached ${images.length} image${images.length === 1 ? "" : "s"} for visual analysis.]`;
-      }
-    }
+    if (response.ok) return proxyProviderStream(config, response);
 
-    const ollamaBody = {
-      model: images.length ? config.visionModel : config.textModel,
-      messages,
-      stream: false,
-      options: {
-        temperature: 0.35,
-        top_p: 0.9,
-        num_ctx: 8192
-      }
-    };
-    const openAiBody = {
-      model: images.length ? config.visionModel : config.textModel,
-      messages: buildOpenAiMessages(messages, images),
-      temperature: 0.35
-    };
+    const details = await readFailure(response);
+    if (images.length && isVisionFailure(response.status, details)) {
+      const warning =
+        "The configured vision model could not process the uploaded image. I will continue from your written prompt and attachment metadata. Set AI_VISION_MODEL to an image-capable model your provider can access to enable screenshot reading.\n\n";
+      const fallbackMessages = textOnlyMessages(messages);
+      const lastUser = [...fallbackMessages].reverse().find((message) => message.role === "user");
+      if (lastUser) lastUser.content = `${lastUser.content}\n\n${warning}`;
+      const fallback = await providerStream(config, fallbackMessages, [], config.textModel);
 
-    const primaryResponse = await postJsonWithRetry(
-      config.provider === "ollama" ? apiChatUrl(config.baseUrl) : openAiChatUrl(config.baseUrl),
-      config.provider === "ollama" ? ollamaBody : openAiBody,
-      config.apiKey
-    );
-
-    if (primaryResponse.ok) {
-      const data = await primaryResponse.json();
-      return NextResponse.json({
-        content:
-          config.provider === "ollama"
-            ? data?.message?.content || "I could not read a response from Ollama."
-            : data?.choices?.[0]?.message?.content || "I could not read a response from the AI provider.",
-        model: data?.model || (images.length ? config.visionModel : config.textModel)
-      });
-    }
-
-    const primaryDetails = await readFailure(primaryResponse);
-    const fallbackUrl = config.provider === "ollama" ? openAiChatUrl(config.baseUrl) : apiChatUrl(config.baseUrl);
-    const fallbackBody = config.provider === "ollama" ? openAiBody : ollamaBody;
-    const fallbackResponse = await postJsonWithRetry(fallbackUrl, fallbackBody, config.apiKey);
-
-    if (fallbackResponse.ok) {
-      const data = await fallbackResponse.json();
-      return NextResponse.json({
-        content:
-          config.provider === "ollama"
-            ? data?.choices?.[0]?.message?.content || "I could not read a response from the AI provider."
-            : data?.message?.content || "I could not read a response from Ollama.",
-        model: data?.model || (images.length ? config.visionModel : config.textModel)
-      });
-    }
-
-    const fallbackDetails = await readFailure(fallbackResponse);
-
-    if (images.length && (isVisionModelFailure(primaryResponse.status, primaryDetails) || isVisionModelFailure(fallbackResponse.status, fallbackDetails))) {
-      const textOnlyMessages = messages.map((message) => {
-        const { images: _images, ...rest } = message;
-        void _images;
-        return rest;
-      });
-      const lastUser = [...textOnlyMessages].reverse().find((message) => message.role === "user");
-      if (lastUser) {
-        lastUser.content = `${lastUser.content}\n\n${IMAGE_FALLBACK_NOTE}`;
-      }
-
-      const textFallbackBody =
-        config.provider === "ollama"
-          ? {
-              model: config.textModel,
-              messages: textOnlyMessages,
-              stream: false,
-              options: {
-                temperature: 0.35,
-                top_p: 0.9,
-                num_ctx: 8192
+      if (fallback.ok) {
+        const stream = proxyProviderStream(config, fallback);
+        const reader = stream.body?.getReader();
+        return new Response(
+          new ReadableStream({
+            async start(controller) {
+              controller.enqueue(encoder.encode(warning));
+              if (reader) {
+                while (true) {
+                  const { value, done } = await reader.read();
+                  if (done) break;
+                  controller.enqueue(value);
+                }
               }
+              controller.close();
             }
-          : {
-              model: config.textModel,
-              messages: textOnlyMessages,
-              temperature: 0.35
-            };
-
-      const textFallbackResponse = await postJsonWithRetry(
-        config.provider === "ollama" ? apiChatUrl(config.baseUrl) : openAiChatUrl(config.baseUrl),
-        textFallbackBody,
-        config.apiKey
-      );
-
-      if (textFallbackResponse.ok) {
-        const data = await textFallbackResponse.json();
-        const content =
-          config.provider === "ollama"
-            ? data?.message?.content
-            : data?.choices?.[0]?.message?.content;
-        return NextResponse.json({
-          content: `${IMAGE_FALLBACK_NOTE}\n\n${content || "Send the visible error text from the screenshot and I will debug it."}`,
-          model: data?.model || config.textModel,
-          warning: "vision-model-unavailable"
-        });
+          }),
+          { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } }
+        );
       }
     }
 
     return NextResponse.json(
       {
-        error: CONNECTION_HELP,
-        details: `Primary provider request failed with ${primaryResponse.status}: ${primaryDetails}. Fallback request failed with ${fallbackResponse.status}: ${fallbackDetails}`
+        error: "AI provider request failed.",
+        code: "provider-error",
+        provider: config.provider,
+        status: response.status,
+        details
       },
       { status: 502 }
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected server error";
+    console.error("[HARYX AI] chat route error", { message });
     return NextResponse.json(
       {
-        error: message === "fetch failed" || message.includes("aborted") ? CONNECTION_HELP : message,
-        details: message
+        error: message.includes("fetch failed")
+          ? "Could not reach the AI provider. Check AI_PROVIDER, AI_BASE_URL, provider API key, and Vercel environment variables."
+          : message,
+        code: "server-error"
       },
       { status: 502 }
     );
