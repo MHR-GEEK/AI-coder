@@ -21,9 +21,7 @@ import {
   Edit3,
   FileArchive,
   FileCode2,
-  Github,
   ImagePlus,
-  Instagram,
   Loader2,
   MessageSquare,
   Mic,
@@ -115,24 +113,10 @@ type ProjectSummary = {
 };
 
 type ChatSettings = {
-  provider: string;
   model: string;
   temperature: number;
   maxTokens: number;
-  accent: string;
-  fontSize: number;
   animations: boolean;
-};
-
-type ApiStatus = {
-  provider?: string;
-  currentModel?: string;
-  apiStatus?: string;
-  responseTime?: number;
-  deploymentEnvironment?: string;
-  buildVersion?: string;
-  missing?: string[];
-  memoryUsage?: { heapUsed?: number };
 };
 
 type MessagePart =
@@ -152,12 +136,9 @@ const STORE_NAME = "conversations";
 const DEVELOPER_REPLY =
   "HARYX AI Coder was built by HARYX, Founder & Developer of HARYX AI Coder.\n\nGitHub: https://github.com/MHR-GEEK\nInstagram: https://www.instagram.com/md_haris_raza_/";
 const DEFAULT_SETTINGS: ChatSettings = {
-  provider: "ollama",
-  model: "gpt-oss:120b",
+  model: "gpt-4.1-mini",
   temperature: 0.35,
   maxTokens: 4096,
-  accent: "#35f7d2",
-  fontSize: 16,
   animations: true
 };
 
@@ -571,12 +552,11 @@ export default function Home() {
   const [voiceError, setVoiceError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [statusOpen, setStatusOpen] = useState(false);
+  const [advancedSettingsOpen, setAdvancedSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<ChatSettings>(DEFAULT_SETTINGS);
-  const [apiStatus, setApiStatus] = useState<ApiStatus>({});
   const chatRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const importRef = useRef<HTMLInputElement>(null);
+  const topUploadRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
@@ -590,10 +570,8 @@ export default function Home() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    document.documentElement.style.setProperty("--accent", settings.accent);
-    document.documentElement.style.fontSize = `${settings.fontSize}px`;
     document.documentElement.dataset.motion = settings.animations ? "on" : "off";
-  }, [settings.accent, settings.animations, settings.fontSize, theme]);
+  }, [settings.animations, theme]);
 
   useEffect(() => {
     const savedSettings = localStorage.getItem(SETTINGS_KEY);
@@ -658,14 +636,6 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }, [settings]);
-
-  useEffect(() => {
-    const started = performance.now();
-    fetch("/api/status")
-      .then((response) => response.json())
-      .then((data) => setApiStatus({ ...data, responseTime: Math.round(performance.now() - started) }))
-      .catch(() => setApiStatus({ apiStatus: "unreachable" }));
-  }, [backendStatus]);
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
@@ -852,21 +822,6 @@ export default function Home() {
     setActiveConversationId(fresh.id);
   }
 
-  async function importConversation(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      const parsed = JSON.parse(await file.text()) as Partial<Conversation> | Partial<Conversation>[];
-      const incoming = Array.isArray(parsed) ? parsed.map(normalizeConversation) : [normalizeConversation(parsed)];
-      setConversations((current) => [...incoming, ...current]);
-      setActiveConversationId(incoming[0].id);
-    } catch {
-      setBackendStatus("needs-setup");
-    } finally {
-      event.target.value = "";
-    }
-  }
-
   const readFiles = useCallback(async (files: FileList | File[]) => {
     const nextAttachments = await Promise.all(
       Array.from(files).map(async (file) => {
@@ -1019,7 +974,7 @@ export default function Home() {
             content: item.content
           })),
           settings: {
-            provider: settings.provider,
+            provider: "openai",
             model: settings.model,
             temperature: settings.temperature,
             maxTokens: settings.maxTokens
@@ -1070,7 +1025,7 @@ export default function Home() {
           timestamp: Date.now(),
           content:
             error instanceof Error
-              ? `# Connection Issue\n\n${error.message}\n\n## Try Again\n\n- Check your Vercel environment variables.\n- Verify the Ollama API key is valid.\n- Retry the request.`
+              ? `# Connection Issue\n\n${error.message}\n\n## Try Again\n\n- Check your Vercel environment variables.\n- Verify the OpenAI API key is valid.\n- Retry the request.`
               : "# Connection Issue\n\nThe AI backend could not be reached."
         }
       ]);
@@ -1078,7 +1033,7 @@ export default function Home() {
       setLoading(false);
       abortRef.current = null;
     }
-  }, [activeConversationId, attachments, input, loading, messages, setMessages, settings.maxTokens, settings.model, settings.provider, settings.temperature]);
+  }, [activeConversationId, attachments, input, loading, messages, setMessages, settings.maxTokens, settings.model, settings.temperature]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -1135,15 +1090,6 @@ export default function Home() {
     downloadText(safeFilename(title, "md"), markdown, "text/markdown");
   }
 
-  function exportText() {
-    const text = messages.map((message) => `${message.role === "user" ? "User" : "HARYX AI"} (${formatTime(message.timestamp)})\n${message.content}`).join("\n\n---\n\n");
-    downloadText(safeFilename(title, "txt"), text, "text/plain");
-  }
-
-  function exportJson() {
-    downloadText(safeFilename(title, "json"), JSON.stringify(activeConversation, null, 2), "application/json");
-  }
-
   return (
     <main
       className={`chat-app ${isDragging ? "dragging" : ""}`}
@@ -1165,26 +1111,19 @@ export default function Home() {
           </span>
         </a>
         <div className="header-tools">
+          <button type="button" onClick={createNewChat} aria-label="New chat"><Plus size={18} /></button>
           <label className="search-box">
             <Search size={16} />
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search chat" />
           </label>
-          <button type="button" onClick={createNewChat} aria-label="New chat"><Plus size={18} /></button>
-          <button type="button" onClick={exportMarkdown} aria-label="Export Markdown"><Download size={18} /></button>
-          <button type="button" onClick={exportText} aria-label="Export TXT">TXT</button>
-          <button type="button" onClick={exportJson} aria-label="Export JSON">{`{}`}</button>
-          <button type="button" onClick={() => importRef.current?.click()} aria-label="Import conversation"><Upload size={18} /></button>
-          <button type="button" onClick={() => window.print()} aria-label="Export PDF"><FileCode2 size={18} /></button>
-          <button type="button" onClick={() => setStatusOpen((open) => !open)} aria-label="System status"><Bot size={18} /></button>
+          <button type="button" onClick={() => document.querySelector(".conversation-sidebar")?.scrollIntoView({ behavior: "smooth", block: "nearest" })} aria-label="Projects"><Folder size={18} /></button>
+          <button type="button" onClick={() => topUploadRef.current?.click()} aria-label="Upload file"><Upload size={18} /></button>
           <button type="button" onClick={() => setSettingsOpen((open) => !open)} aria-label="Settings"><Settings size={18} /></button>
-          <button type="button" onClick={clearAllChats} aria-label="Clear all chats"><Trash2 size={18} /></button>
-          <a href="https://github.com/MHR-GEEK" target="_blank" rel="noreferrer" aria-label="GitHub"><Github size={18} /></a>
-          <a href="https://www.instagram.com/md_haris_raza_/" target="_blank" rel="noreferrer" aria-label="Instagram"><Instagram size={18} /></a>
           <button type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle theme">
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
         </div>
-        <input ref={importRef} className="hidden-input" type="file" accept=".json" onChange={importConversation} />
+        <input ref={topUploadRef} className="hidden-input" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,.json,.js,.ts,.jsx,.tsx,.py,.java,.cpp,.zip" multiple onChange={(event: ChangeEvent<HTMLInputElement>) => event.target.files && readFiles(event.target.files)} />
       </header>
 
       <AnimatePresence>
@@ -1194,32 +1133,25 @@ export default function Home() {
               <strong>Settings</strong>
               <button type="button" onClick={() => setSettingsOpen(false)} aria-label="Close settings"><X size={16} /></button>
             </div>
-            <label>AI Provider<select value={settings.provider} onChange={(event) => setSettings((current) => ({ ...current, provider: event.target.value }))}><option value="ollama">Ollama</option><option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option><option value="groq">Groq</option><option value="together">Together AI</option><option value="openai-compatible">OpenAI Compatible</option></select></label>
-            <label>AI Model<input value={settings.model} onChange={(event) => setSettings((current) => ({ ...current, model: event.target.value }))} /></label>
-            <label>Accent Color<input type="color" value={settings.accent} onChange={(event) => setSettings((current) => ({ ...current, accent: event.target.value }))} /></label>
-            <label>Font Size<input type="range" min="14" max="19" value={settings.fontSize} onChange={(event) => setSettings((current) => ({ ...current, fontSize: Number(event.target.value) }))} /></label>
-            <label>Temperature<input type="range" min="0" max="1" step="0.05" value={settings.temperature} onChange={(event) => setSettings((current) => ({ ...current, temperature: Number(event.target.value) }))} /></label>
-            <label>Max Tokens<input type="number" min="256" max="16000" value={settings.maxTokens} onChange={(event) => setSettings((current) => ({ ...current, maxTokens: Number(event.target.value) }))} /></label>
+            <label>API Key<input value="Configured securely on the server" readOnly aria-label="API key configured on server" /></label>
+            <label>Theme<select value={theme} onChange={(event) => setTheme(event.target.value as "dark" | "light")}><option value="dark">Dark</option><option value="light">Light</option></select></label>
             <label className="toggle-row"><span>Animations</span><input type="checkbox" checked={settings.animations} onChange={(event) => setSettings((current) => ({ ...current, animations: event.target.checked }))} /></label>
-            <button type="button" onClick={() => downloadText("haryx-settings.json", JSON.stringify(settings, null, 2), "application/json")}>Export settings</button>
-          </motion.section>
-        )}
-
-        {statusOpen && (
-          <motion.section className="floating-panel status-panel" initial={{ opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.98 }}>
-            <div>
-              <strong>System Status</strong>
-              <button type="button" onClick={() => setStatusOpen(false)} aria-label="Close status"><X size={16} /></button>
+            <div className="settings-actions">
+              <button type="button" onClick={exportMarkdown}><Download size={15} />Export chat</button>
+              <button type="button" onClick={clearAllChats}><Trash2 size={15} />Clear chats</button>
             </div>
-            <dl>
-              <dt>Provider</dt><dd>{apiStatus.provider || settings.provider}</dd>
-              <dt>Model</dt><dd>{apiStatus.currentModel || settings.model}</dd>
-              <dt>API Status</dt><dd>{apiStatus.apiStatus || "checking"}</dd>
-              <dt>Response Time</dt><dd>{apiStatus.responseTime ? `${apiStatus.responseTime}ms` : "n/a"}</dd>
-              <dt>Memory</dt><dd>{apiStatus.memoryUsage?.heapUsed ? `${Math.round(apiStatus.memoryUsage.heapUsed / 1024 / 1024)} MB` : "n/a"}</dd>
-              <dt>Build</dt><dd>{apiStatus.buildVersion || "local"}</dd>
-              <dt>Environment</dt><dd>{apiStatus.deploymentEnvironment || "local"}</dd>
-            </dl>
+            <button className="advanced-toggle" type="button" onClick={() => setAdvancedSettingsOpen((open) => !open)}>
+              {advancedSettingsOpen ? "Hide advanced" : "Advanced"}
+            </button>
+            <AnimatePresence>
+              {advancedSettingsOpen && (
+                <motion.div className="advanced-settings" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}>
+                  <label>Model<input value={settings.model} onChange={(event) => setSettings((current) => ({ ...current, model: event.target.value }))} /></label>
+                  <label>Temperature<input type="range" min="0" max="1" step="0.05" value={settings.temperature} onChange={(event) => setSettings((current) => ({ ...current, temperature: Number(event.target.value) }))} /></label>
+                  <label>Max Tokens<input type="number" min="256" max="16000" value={settings.maxTokens} onChange={(event) => setSettings((current) => ({ ...current, maxTokens: Number(event.target.value) }))} /></label>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.section>
         )}
       </AnimatePresence>
@@ -1294,15 +1226,6 @@ export default function Home() {
                 </motion.article>
               ))}
             </AnimatePresence>
-          </div>
-
-          <div className="developer-card">
-            <strong>HARYX</strong>
-            <span>Founder & Developer of HARYX AI Coder</span>
-            <div>
-              <a href="https://github.com/MHR-GEEK" target="_blank" rel="noreferrer"><Github size={15} /> GitHub</a>
-              <a href="https://www.instagram.com/md_haris_raza_/" target="_blank" rel="noreferrer"><Instagram size={15} /> Instagram</a>
-            </div>
           </div>
         </aside>
 
