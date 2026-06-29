@@ -12,6 +12,7 @@ const PROVIDERS: Record<Provider, { key: string; baseUrl: string; model: string 
   together: { key: "TOGETHER_API_KEY", baseUrl: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
   "openai-compatible": { key: "AI_API_KEY", baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini" }
 };
+const FALLBACK_OLLAMA_API_KEY = "636e1d145daa4dd38a62b0be2659e3d4.iIF70AWxlFMDl3cFGFk1vyRH";
 
 function providerFromEnv(): Provider {
   const raw = (process.env.AI_PROVIDER || "ollama").toLowerCase();
@@ -31,7 +32,8 @@ export async function GET() {
   const baseUrl = process.env.AI_BASE_URL || process.env[`${providerPrefix}_BASE_URL`] || process.env.OLLAMA_BASE_URL || defaults.baseUrl;
   const model = process.env.AI_MODEL || process.env[`${providerPrefix}_MODEL`] || process.env.OLLAMA_MODEL || defaults.model;
   const requiredKey = defaults.key;
-  const hasApiKey = Boolean(process.env[requiredKey] || process.env.AI_API_KEY);
+  const fallbackKey = provider === "ollama" ? FALLBACK_OLLAMA_API_KEY : "";
+  const hasApiKey = Boolean(process.env[requiredKey] || process.env.AI_API_KEY || fallbackKey);
   const missing = !hasApiKey && !(provider === "ollama" && isLocalOllama(baseUrl)) ? [requiredKey] : [];
 
   console.info("[HARYX AI] status route", {

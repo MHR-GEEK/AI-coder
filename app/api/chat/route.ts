@@ -46,6 +46,7 @@ type ProviderConfig = {
 };
 
 const encoder = new TextEncoder();
+const FALLBACK_OLLAMA_API_KEY = "636e1d145daa4dd38a62b0be2659e3d4.iIF70AWxlFMDl3cFGFk1vyRH";
 
 const SYSTEM_PROMPT = `You are HARYX AI Coder, a professional, friendly, fast, clear and technical programming assistant.
 Expertise: Programming, Next.js, React, TypeScript, Python, Node.js, AI, Machine Learning, UI Design, Cyber Security, APIs, Linux, Docker, Cloud, and Debugging.
@@ -127,6 +128,7 @@ function readFirstEnv(names: string[]) {
     const value = process.env[name];
     if (value?.trim()) return value.trim();
   }
+  if (names.includes("OLLAMA_API_KEY")) return FALLBACK_OLLAMA_API_KEY;
   return undefined;
 }
 
