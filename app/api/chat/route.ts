@@ -8,15 +8,25 @@ type ChatMessage = {
   images?: string[];
 };
 
+type UploadedFile = {
+  name: string;
+  type: string;
+  size: number;
+  content?: string;
+};
+
 type ChatPayload = {
   messages?: ChatMessage[];
   image?: string | null;
+  images?: string[];
+  files?: UploadedFile[];
 };
 
 const SYSTEM_PROMPT = `You are HARYX AI Coder, a human-friendly elite programming assistant.
 You can help with architecture, implementation, debugging, algorithms, UI, AI engineering, prompts, deployment, and error analysis.
 Give direct working solutions, explain tradeoffs briefly, and ask for missing details only when they are required.
-When an image is provided, inspect it for code, terminal errors, UI bugs, diagrams, and visible context before answering.`;
+When images or files are provided, inspect them for code, terminal errors, UI bugs, diagrams, visible context, stack traces, and design/API issues before answering.
+Format coding answers with short sections: Explanation, Root Cause, Solution, Updated Code, and Next Recommendation. Explain first, then show code, then explain improvements. Avoid giant walls of text.`;
 
 const CONNECTION_HELP =
   "The AI backend is not connected yet. For Ollama cloud, set OLLAMA_BASE_URL=https://ollama.com and add OLLAMA_API_KEY. For local Ollama, run `ollama serve`, pull the configured model, and set OLLAMA_BASE_URL=http://127.0.0.1:11434.";
@@ -26,6 +36,11 @@ const FALLBACK_OLLAMA_API_KEY = "636e1d145daa4dd38a62b0be2659e3d4.iIF70AWxlFMDl3
 function cleanBase64Image(image?: string | null) {
   if (!image) return null;
   return image.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
+}
+
+function cleanBase64Images(payload: ChatPayload) {
+  const images = [...(payload.images || []), ...(payload.image ? [payload.image] : [])];
+  return images.map((item) => cleanBase64Image(item)).filter((item): item is string => Boolean(item));
 }
 
 function normalizeBaseUrl(baseUrl: string) {
@@ -58,9 +73,9 @@ function withTimeout(ms: number) {
   };
 }
 
-function buildOpenAiMessages(messages: ChatMessage[], image?: string | null) {
+function buildOpenAiMessages(messages: ChatMessage[], images: string[]) {
   return messages.map((message, index) => {
-    const isLastUserWithImage = image && message.role === "user" && index === messages.findLastIndex((item) => item.role === "user");
+    const isLastUserWithImage = images.length > 0 && message.role === "user" && index === messages.findLastIndex((item) => item.role === "user");
 
     if (!isLastUserWithImage) {
       return {
@@ -73,10 +88,23 @@ function buildOpenAiMessages(messages: ChatMessage[], image?: string | null) {
       role: message.role,
       content: [
         { type: "text", text: message.content },
-        { type: "image_url", image_url: { url: `data:image/png;base64,${image}` } }
+        ...images.map((image) => ({ type: "image_url", image_url: { url: `data:image/png;base64,${image}` } }))
       ]
     };
   });
+}
+
+function formatFiles(files?: UploadedFile[]) {
+  if (!files?.length) return "";
+
+  return [
+    "\n\nAttached files:",
+    ...files.map((file, index) => {
+      const header = `\n[File ${index + 1}: ${file.name} | ${file.type || "unknown"} | ${file.size} bytes]`;
+      if (!file.content) return `${header}\nBinary or unsupported text extraction. Use the filename and user prompt for context.`;
+      return `${header}\n${file.content.slice(0, 20000)}`;
+    })
+  ].join("\n");
 }
 
 async function postJson(url: string, body: unknown, apiKey?: string) {
@@ -109,7 +137,7 @@ export async function POST(request: NextRequest) {
     const baseUrl = normalizeBaseUrl(process.env.OLLAMA_BASE_URL || "https://ollama.com");
     const textModel = process.env.OLLAMA_MODEL || "gpt-oss:120b";
     const visionModel = process.env.OLLAMA_VISION_MODEL || "gpt-oss:120b";
-    const image = cleanBase64Image(payload.image);
+    const images = cleanBase64Images(payload);
 
     if (!apiKey && !isLocalBaseUrl(baseUrl)) {
       return NextResponse.json(
@@ -123,17 +151,25 @@ export async function POST(request: NextRequest) {
       ...(payload.messages || []).slice(-10)
     ];
 
-    if (image) {
+    const fileContext = formatFiles(payload.files);
+    if (fileContext) {
       const lastUser = [...messages].reverse().find((message) => message.role === "user");
       if (lastUser) {
-        lastUser.images = [image];
+        lastUser.content = `${lastUser.content}${fileContext}`;
+      }
+    }
+
+    if (images.length) {
+      const lastUser = [...messages].reverse().find((message) => message.role === "user");
+      if (lastUser) {
+        lastUser.images = images;
       }
     }
 
     const nativeResponse = await postJson(
       apiChatUrl(baseUrl),
       {
-        model: image ? visionModel : textModel,
+        model: images.length ? visionModel : textModel,
         messages,
         stream: false,
         options: {
@@ -149,7 +185,7 @@ export async function POST(request: NextRequest) {
       const data = await nativeResponse.json();
       return NextResponse.json({
         content: data?.message?.content || "I could not read a response from Ollama.",
-        model: data?.model || (image ? visionModel : textModel)
+        model: data?.model || (images.length ? visionModel : textModel)
       });
     }
 
@@ -157,8 +193,8 @@ export async function POST(request: NextRequest) {
     const openAiResponse = await postJson(
       openAiChatUrl(baseUrl),
       {
-        model: image ? visionModel : textModel,
-        messages: buildOpenAiMessages(messages, image),
+        model: images.length ? visionModel : textModel,
+        messages: buildOpenAiMessages(messages, images),
         temperature: 0.35
       },
       apiKey
@@ -168,7 +204,7 @@ export async function POST(request: NextRequest) {
       const data = await openAiResponse.json();
       return NextResponse.json({
         content: data?.choices?.[0]?.message?.content || "I could not read a response from the AI provider.",
-        model: data?.model || (image ? visionModel : textModel)
+        model: data?.model || (images.length ? visionModel : textModel)
       });
     }
 
