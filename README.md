@@ -15,8 +15,8 @@ npm install
 ```bash
 OLLAMA_API_KEY=your_key_here
 OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen2.5-coder:32b
-OLLAMA_VISION_MODEL=llava:latest
+OLLAMA_MODEL=gpt-oss:120b
+OLLAMA_VISION_MODEL=gpt-oss:120b
 ```
 
 3. Run the dev server:

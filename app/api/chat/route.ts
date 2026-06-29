@@ -19,7 +19,7 @@ Give direct working solutions, explain tradeoffs briefly, and ask for missing de
 When an image is provided, inspect it for code, terminal errors, UI bugs, diagrams, and visible context before answering.`;
 
 const CONNECTION_HELP =
-  "The AI backend is not connected yet. For local Ollama, run `ollama serve`, pull the configured model, and set OLLAMA_BASE_URL=http://127.0.0.1:11434. For a hosted provider, set OLLAMA_BASE_URL to its real API base URL and keep OLLAMA_API_KEY in Vercel environment variables.";
+  "The AI backend is not connected yet. For Ollama cloud, set OLLAMA_BASE_URL=https://ollama.com and add OLLAMA_API_KEY. For local Ollama, run `ollama serve`, pull the configured model, and set OLLAMA_BASE_URL=http://127.0.0.1:11434.";
 
 function cleanBase64Image(image?: string | null) {
   if (!image) return null;
@@ -27,11 +27,23 @@ function cleanBase64Image(image?: string | null) {
 }
 
 function normalizeBaseUrl(baseUrl: string) {
-  return baseUrl.replace(/\/$/, "");
+  return baseUrl.replace(/\/+$/, "");
 }
 
 function isLocalBaseUrl(baseUrl: string) {
   return baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1");
+}
+
+function apiChatUrl(baseUrl: string) {
+  if (baseUrl.endsWith("/api")) return `${baseUrl}/chat`;
+  if (baseUrl.endsWith("/v1")) return `${baseUrl.replace(/\/v1$/, "")}/api/chat`;
+  return `${baseUrl}/api/chat`;
+}
+
+function openAiChatUrl(baseUrl: string) {
+  if (baseUrl.endsWith("/v1")) return `${baseUrl}/chat/completions`;
+  if (baseUrl.endsWith("/api")) return `${baseUrl.replace(/\/api$/, "")}/v1/chat/completions`;
+  return `${baseUrl}/v1/chat/completions`;
 }
 
 function withTimeout(ms: number) {
@@ -92,9 +104,9 @@ export async function POST(request: NextRequest) {
   try {
     const payload = (await request.json()) as ChatPayload;
     const apiKey = process.env.OLLAMA_API_KEY;
-    const baseUrl = normalizeBaseUrl(process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434");
-    const textModel = process.env.OLLAMA_MODEL || "qwen2.5-coder:32b";
-    const visionModel = process.env.OLLAMA_VISION_MODEL || "llava:latest";
+    const baseUrl = normalizeBaseUrl(process.env.OLLAMA_BASE_URL || "https://ollama.com");
+    const textModel = process.env.OLLAMA_MODEL || "gpt-oss:120b";
+    const visionModel = process.env.OLLAMA_VISION_MODEL || "gpt-oss:120b";
     const image = cleanBase64Image(payload.image);
 
     if (!apiKey && !isLocalBaseUrl(baseUrl)) {
@@ -117,7 +129,7 @@ export async function POST(request: NextRequest) {
     }
 
     const nativeResponse = await postJson(
-      `${baseUrl}/api/chat`,
+      apiChatUrl(baseUrl),
       {
         model: image ? visionModel : textModel,
         messages,
@@ -141,7 +153,7 @@ export async function POST(request: NextRequest) {
 
     const nativeDetails = await readFailure(nativeResponse);
     const openAiResponse = await postJson(
-      `${baseUrl}/v1/chat/completions`,
+      openAiChatUrl(baseUrl),
       {
         model: image ? visionModel : textModel,
         messages: buildOpenAiMessages(messages, image),

@@ -262,6 +262,12 @@ export default function Home() {
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  submitMessage();
+                }
+              }}
               placeholder="Ask HARYX AI to build, debug, explain, refactor, or solve a coding screenshot..."
               rows={1}
             />
