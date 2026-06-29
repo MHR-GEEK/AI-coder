@@ -37,7 +37,6 @@ import {
   RefreshCcw,
   Search,
   Send,
-  Settings,
   Sparkles,
   Square,
   Star,
@@ -114,10 +113,6 @@ type ProjectSummary = {
   pinned: boolean;
 };
 
-type ChatSettings = {
-  animations: boolean;
-};
-
 type MessagePart =
   | { type: "text"; content: string }
   | { type: "code"; content: string; language: string }
@@ -128,15 +123,11 @@ const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp
 const MAX_IMAGE_SIDE = 1600;
 const IMAGE_QUALITY = 0.88;
 const STORAGE_KEY = "haryx-ai-coder-conversations";
-const SETTINGS_KEY = "haryx-ai-coder-settings";
 const DB_NAME = "haryx-ai-coder-db";
 const DB_VERSION = 1;
 const STORE_NAME = "conversations";
 const DEVELOPER_REPLY =
   "HARYX AI Coder was built by HARYX, Founder & Developer of HARYX AI Coder.\n\nGitHub: https://github.com/MHR-GEEK\nInstagram: https://www.instagram.com/md_haris_raza_/";
-const DEFAULT_SETTINGS: ChatSettings = {
-  animations: true
-};
 
 function uid() {
   return crypto.randomUUID();
@@ -450,6 +441,114 @@ function AttachmentPreview({ attachment, onRemove }: { attachment: Attachment; o
   );
 }
 
+function CursorTrail() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const particlesRef = useRef<Array<{ x: number; y: number; vx: number; vy: number; life: number; size: number; rotation: number; spin: number; hue: number }>>([]);
+  const pointerRef = useRef({ x: -1000, y: -1000, lastX: -1000, lastY: -1000, moving: false });
+  const frameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const canvasElement = canvasRef.current;
+    const context = canvasElement?.getContext("2d", { alpha: true });
+    if (!canvasElement || !context) return;
+    const canvas = canvasElement;
+    const drawingContext = context;
+
+    function resize() {
+      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(window.innerWidth * ratio);
+      canvas.height = Math.floor(window.innerHeight * ratio);
+      canvas.style.width = `${window.innerWidth}px`;
+      canvas.style.height = `${window.innerHeight}px`;
+      drawingContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+    }
+
+    function addParticles(x: number, y: number, amount: number) {
+      const particles = particlesRef.current;
+      for (let index = 0; index < amount; index += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 0.25 + Math.random() * 1.2;
+        particles.push({
+          x: x + (Math.random() - 0.5) * 6,
+          y: y + (Math.random() - 0.5) * 6,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 0.2,
+          life: 1,
+          size: 1.2 + Math.random() * 3.2,
+          rotation: Math.random() * Math.PI,
+          spin: (Math.random() - 0.5) * 0.08,
+          hue: Math.random() > 0.78 ? 270 : 42
+        });
+      }
+      if (particles.length > 120) particles.splice(0, particles.length - 120);
+    }
+
+    function onPointerMove(event: PointerEvent) {
+      const pointer = pointerRef.current;
+      pointer.lastX = pointer.x;
+      pointer.lastY = pointer.y;
+      pointer.x = event.clientX;
+      pointer.y = event.clientY;
+      pointer.moving = true;
+      const distance = Math.hypot(pointer.x - pointer.lastX, pointer.y - pointer.lastY);
+      addParticles(pointer.x, pointer.y, Math.min(5, Math.max(1, Math.floor(distance / 18))));
+    }
+
+    function render() {
+      drawingContext.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      const pointer = pointerRef.current;
+      const glow = drawingContext.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, 180);
+      glow.addColorStop(0, "rgba(217, 179, 108, 0.14)");
+      glow.addColorStop(0.42, "rgba(201, 154, 67, 0.06)");
+      glow.addColorStop(1, "rgba(217, 179, 108, 0)");
+      drawingContext.fillStyle = glow;
+      drawingContext.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+      particlesRef.current = particlesRef.current.filter((particle) => particle.life > 0.015);
+      for (const particle of particlesRef.current) {
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+        particle.vx *= 0.985;
+        particle.vy *= 0.985;
+        particle.life *= 0.955;
+        particle.rotation += particle.spin;
+
+        drawingContext.save();
+        drawingContext.translate(particle.x, particle.y);
+        drawingContext.rotate(particle.rotation);
+        const alpha = particle.life;
+        const fill = particle.hue === 270 ? `rgba(139, 92, 246, ${alpha})` : `rgba(240, 210, 154, ${alpha})`;
+        drawingContext.shadowBlur = 18;
+        drawingContext.shadowColor = particle.hue === 270 ? "rgba(139, 92, 246, 0.8)" : "rgba(217, 179, 108, 0.9)";
+        drawingContext.fillStyle = fill;
+        drawingContext.beginPath();
+        drawingContext.moveTo(0, -particle.size);
+        drawingContext.lineTo(particle.size * 0.45, 0);
+        drawingContext.lineTo(0, particle.size);
+        drawingContext.lineTo(-particle.size * 0.45, 0);
+        drawingContext.closePath();
+        drawingContext.fill();
+        drawingContext.restore();
+      }
+
+      frameRef.current = requestAnimationFrame(render);
+    }
+
+    resize();
+    window.addEventListener("resize", resize);
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    frameRef.current = requestAnimationFrame(render);
+
+    return () => {
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("pointermove", onPointerMove);
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    };
+  }, []);
+
+  return <canvas className="cursor-canvas" ref={canvasRef} aria-hidden="true" />;
+}
+
 const ChatMessage = memo(function ChatMessage({
   message,
   copiedCode,
@@ -547,8 +646,6 @@ export default function Home() {
   const [liveTranscript, setLiveTranscript] = useState("");
   const [voiceError, setVoiceError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settings, setSettings] = useState<ChatSettings>(DEFAULT_SETTINGS);
   const chatRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const topUploadRef = useRef<HTMLInputElement>(null);
@@ -565,19 +662,9 @@ export default function Home() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    document.documentElement.dataset.motion = settings.animations ? "on" : "off";
-  }, [settings.animations, theme]);
+  }, [theme]);
 
   useEffect(() => {
-    const savedSettings = localStorage.getItem(SETTINGS_KEY);
-    if (savedSettings) {
-      try {
-        setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(savedSettings) });
-      } catch {
-        localStorage.removeItem(SETTINGS_KEY);
-      }
-    }
-
     readConversationsFromDb()
       .then((stored) => {
         if (stored.length) {
@@ -627,10 +714,6 @@ export default function Home() {
       writeConversationsToDb(conversations).catch(() => setBackendStatus("needs-setup"));
     }
   }, [conversations]);
-
-  useEffect(() => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  }, [settings]);
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
@@ -967,10 +1050,7 @@ export default function Home() {
             type: item.type,
             size: item.size,
             content: item.content
-          })),
-          settings: {
-            provider: "ollama"
-          }
+          }))
         })
       });
 
@@ -1110,6 +1190,7 @@ export default function Home() {
         <span />
         <span />
       </div>
+      <CursorTrail />
       <header className="app-header">
         <a className="brand" href="#" aria-label="AI Coder home">
           <span className="brand-mark"><Sparkles size={20} /></span>
@@ -1129,33 +1210,15 @@ export default function Home() {
           <button type="button" onClick={copyChat} aria-label="Copy chat"><Copy size={18} /></button>
           <button type="button" onClick={clearAllChats} aria-label="Delete chat"><Trash2 size={18} /></button>
           <button type="button" onClick={() => topUploadRef.current?.click()} aria-label="Upload file"><Upload size={18} /></button>
-          <button type="button" onClick={() => setSettingsOpen((open) => !open)} aria-label="Settings"><Settings size={18} /></button>
           <button type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle theme">
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
           <a href="https://github.com/MHR-GEEK" target="_blank" rel="noreferrer" aria-label="GitHub"><Github size={18} /></a>
           <a href="https://www.instagram.com/md_haris_raza_/" target="_blank" rel="noreferrer" aria-label="Instagram"><Instagram size={18} /></a>
+          <span className="profile-avatar" aria-label="HARYX profile">H</span>
         </div>
         <input ref={topUploadRef} className="hidden-input" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,.json,.js,.ts,.jsx,.tsx,.py,.java,.cpp,.zip" multiple onChange={(event: ChangeEvent<HTMLInputElement>) => event.target.files && readFiles(event.target.files)} />
       </header>
-
-      <AnimatePresence>
-        {settingsOpen && (
-          <motion.section className="floating-panel settings-panel" initial={{ opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.98 }}>
-            <div>
-              <strong>Settings</strong>
-              <button type="button" onClick={() => setSettingsOpen(false)} aria-label="Close settings"><X size={16} /></button>
-            </div>
-            <label>API Key<input value="Configured securely on the server" readOnly aria-label="API key configured on server" /></label>
-            <label>Theme<select value={theme} onChange={(event) => setTheme(event.target.value as "dark" | "light")}><option value="dark">Dark</option><option value="light">Light</option></select></label>
-            <label className="toggle-row"><span>Animations</span><input type="checkbox" checked={settings.animations} onChange={(event) => setSettings((current) => ({ ...current, animations: event.target.checked }))} /></label>
-            <div className="settings-actions">
-              <button type="button" onClick={exportMarkdown}><Download size={15} />Export chat</button>
-              <button type="button" onClick={clearAllChats}><Trash2 size={15} />Clear chats</button>
-            </div>
-          </motion.section>
-        )}
-      </AnimatePresence>
 
       <section className="chat-shell">
         <aside className="conversation-sidebar" aria-label="Conversation history">
