@@ -32,6 +32,8 @@ const CONNECTION_HELP =
   "The AI backend is not connected yet. For Ollama cloud, set OLLAMA_BASE_URL=https://ollama.com and add OLLAMA_API_KEY. For local Ollama, run `ollama serve`, pull the configured model, and set OLLAMA_BASE_URL=http://127.0.0.1:11434.";
 
 const FALLBACK_OLLAMA_API_KEY = "636e1d145daa4dd38a62b0be2659e3d4.iIF70AWxlFMDl3cFGFk1vyRH";
+const IMAGE_FALLBACK_NOTE =
+  "The request included image attachments, but the configured vision model could not process them. I can still help from your written prompt and attached file metadata. To enable real screenshot reading on Vercel, set OLLAMA_VISION_MODEL to an Ollama model your key can access that supports images.";
 
 function cleanBase64Image(image?: string | null) {
   if (!image) return null;
@@ -130,13 +132,26 @@ async function readFailure(response: Response) {
   return details.slice(0, 1200);
 }
 
+function isVisionModelFailure(status: number, details: string) {
+  const text = details.toLowerCase();
+  return (
+    [400, 403, 404, 422].includes(status) &&
+    (text.includes("image") ||
+      text.includes("vision") ||
+      text.includes("model") ||
+      text.includes("not found") ||
+      text.includes("forbidden") ||
+      text.includes("does not support"))
+  );
+}
+
 export async function POST(request: NextRequest) {
   try {
     const payload = (await request.json()) as ChatPayload;
     const apiKey = process.env.OLLAMA_API_KEY || FALLBACK_OLLAMA_API_KEY;
     const baseUrl = normalizeBaseUrl(process.env.OLLAMA_BASE_URL || "https://ollama.com");
     const textModel = process.env.OLLAMA_MODEL || "gpt-oss:120b";
-    const visionModel = process.env.OLLAMA_VISION_MODEL || "gpt-oss:120b";
+    const visionModel = process.env.OLLAMA_VISION_MODEL || "minimax-m3";
     const images = cleanBase64Images(payload);
 
     if (!apiKey && !isLocalBaseUrl(baseUrl)) {
@@ -163,6 +178,7 @@ export async function POST(request: NextRequest) {
       const lastUser = [...messages].reverse().find((message) => message.role === "user");
       if (lastUser) {
         lastUser.images = images;
+        lastUser.content = `${lastUser.content}\n\n[User attached ${images.length} image${images.length === 1 ? "" : "s"} for visual analysis.]`;
       }
     }
 
@@ -208,10 +224,46 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const openAiDetails = await readFailure(openAiResponse);
+    if (images.length && (isVisionModelFailure(nativeResponse.status, nativeDetails) || isVisionModelFailure(openAiResponse.status, openAiDetails))) {
+      const textOnlyMessages = messages.map((message) => {
+        const { images: _images, ...rest } = message;
+        return rest;
+      });
+      const lastUser = [...textOnlyMessages].reverse().find((message) => message.role === "user");
+      if (lastUser) {
+        lastUser.content = `${lastUser.content}\n\n${IMAGE_FALLBACK_NOTE}`;
+      }
+
+      const textFallbackResponse = await postJson(
+        apiChatUrl(baseUrl),
+        {
+          model: textModel,
+          messages: textOnlyMessages,
+          stream: false,
+          options: {
+            temperature: 0.35,
+            top_p: 0.9,
+            num_ctx: 8192
+          }
+        },
+        apiKey
+      );
+
+      if (textFallbackResponse.ok) {
+        const data = await textFallbackResponse.json();
+        return NextResponse.json({
+          content: `${IMAGE_FALLBACK_NOTE}\n\n${data?.message?.content || "Send the visible error text from the screenshot and I will debug it."}`,
+          model: data?.model || textModel,
+          warning: "vision-model-unavailable"
+        });
+      }
+    }
+
     return NextResponse.json(
       {
         error: CONNECTION_HELP,
-        details: `Native /api/chat failed with ${nativeResponse.status}: ${nativeDetails}. OpenAI-compatible /v1/chat/completions failed with ${openAiResponse.status}: ${await readFailure(openAiResponse)}`
+        details: `Native /api/chat failed with ${nativeResponse.status}: ${nativeDetails}. OpenAI-compatible /v1/chat/completions failed with ${openAiResponse.status}: ${openAiDetails}`
       },
       { status: 502 }
     );

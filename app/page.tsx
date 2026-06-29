@@ -67,6 +67,8 @@ type MessagePart =
 const QUICK_ACTIONS = ["Debug Code", "Explain Error", "Refactor", "Generate Project"];
 const TEXT_FILE_TYPES = new Set(["txt", "md", "json", "js", "ts", "jsx", "tsx", "py", "java", "cpp"]);
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
+const MAX_IMAGE_SIDE = 1600;
+const IMAGE_QUALITY = 0.88;
 
 function uid() {
   return crypto.randomUUID();
@@ -78,6 +80,43 @@ function formatTime(timestamp: number) {
 
 function fileExtension(name: string) {
   return name.split(".").pop()?.toLowerCase() || "";
+}
+
+function resizeImage(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const source = String(reader.result);
+      const image = new Image();
+
+      image.onload = () => {
+        const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(image.width, image.height));
+        if (scale === 1 && file.size < 900_000) {
+          resolve(source);
+          return;
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext("2d");
+        if (!context) {
+          resolve(source);
+          return;
+        }
+
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", IMAGE_QUALITY));
+      };
+
+      image.onerror = () => reject(new Error("Image preview failed"));
+      image.src = source;
+    };
+
+    reader.onerror = () => reject(new Error("Image upload failed"));
+    reader.readAsDataURL(file);
+  });
 }
 
 function splitMessage(content: string): MessagePart[] {
@@ -389,12 +428,7 @@ export default function Home() {
         };
 
         if (isImage) {
-          attachment.dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result));
-            reader.onerror = () => reject(new Error("Image upload failed"));
-            reader.readAsDataURL(file);
-          });
+          attachment.dataUrl = await resizeImage(file);
         } else if (TEXT_FILE_TYPES.has(extension)) {
           attachment.content = await file.text();
         }
