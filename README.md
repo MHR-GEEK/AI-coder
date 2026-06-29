@@ -19,7 +19,7 @@ Built by HARIS .
 
 ## Overview
 
-HARYX AI is a local coding workspace powered by Ollama.
+HARYX AI is a coding workspace powered by Ollama.
 
 Designed for focused conversations, code generation, debugging, image understanding, and project workflows.
 
