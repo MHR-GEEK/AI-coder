@@ -2,7 +2,7 @@
 
 # HARYX AI
 
-### Local AI Coding Workspace
+###  AI Coding Workspace
 
 Built on Ollama.
 
