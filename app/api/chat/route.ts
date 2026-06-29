@@ -21,6 +21,8 @@ When an image is provided, inspect it for code, terminal errors, UI bugs, diagra
 const CONNECTION_HELP =
   "The AI backend is not connected yet. For Ollama cloud, set OLLAMA_BASE_URL=https://ollama.com and add OLLAMA_API_KEY. For local Ollama, run `ollama serve`, pull the configured model, and set OLLAMA_BASE_URL=http://127.0.0.1:11434.";
 
+const FALLBACK_OLLAMA_API_KEY = "636e1d145daa4dd38a62b0be2659e3d4.iIF70AWxlFMDl3cFGFk1vyRH";
+
 function cleanBase64Image(image?: string | null) {
   if (!image) return null;
   return image.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
@@ -103,7 +105,7 @@ async function readFailure(response: Response) {
 export async function POST(request: NextRequest) {
   try {
     const payload = (await request.json()) as ChatPayload;
-    const apiKey = process.env.OLLAMA_API_KEY;
+    const apiKey = process.env.OLLAMA_API_KEY || FALLBACK_OLLAMA_API_KEY;
     const baseUrl = normalizeBaseUrl(process.env.OLLAMA_BASE_URL || "https://ollama.com");
     const textModel = process.env.OLLAMA_MODEL || "gpt-oss:120b";
     const visionModel = process.env.OLLAMA_VISION_MODEL || "gpt-oss:120b";

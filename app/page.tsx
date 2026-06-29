@@ -9,6 +9,8 @@ import {
   Instagram,
   Loader2,
   Moon,
+  Copy,
+  Check,
   Send,
   Sparkles,
   Sun,
@@ -20,6 +22,17 @@ type Message = {
   content: string;
 };
 
+type MessagePart =
+  | {
+      type: "text";
+      content: string;
+    }
+  | {
+      type: "code";
+      content: string;
+      language: string;
+    };
+
 const starters = [
   "Build me a full-stack auth system in Next.js",
   "Fix this error and explain the root cause",
@@ -27,9 +40,36 @@ const starters = [
   "Refactor this code for production"
 ];
 
+function splitMessage(content: string): MessagePart[] {
+  const parts: MessagePart[] = [];
+  const codeBlockPattern = /```(\w+)?\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = codeBlockPattern.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: "text", content: content.slice(lastIndex, match.index) });
+    }
+
+    parts.push({
+      type: "code",
+      language: match[1] || "code",
+      content: match[2].trim()
+    });
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < content.length) {
+    parts.push({ type: "text", content: content.slice(lastIndex) });
+  }
+
+  return parts.length ? parts : [{ type: "text", content }];
+}
+
 export default function Home() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [backendStatus, setBackendStatus] = useState<"idle" | "connected" | "needs-setup">("idle");
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
@@ -83,6 +123,12 @@ export default function Home() {
       setImageName(file.name);
     };
     reader.readAsDataURL(file);
+  }
+
+  async function copyCode(code: string) {
+    await navigator.clipboard.writeText(code);
+    setCopiedCode(code);
+    window.setTimeout(() => setCopiedCode(null), 1300);
   }
 
   async function submitMessage(event?: FormEvent, starter?: string) {
@@ -230,7 +276,26 @@ export default function Home() {
             {messages.map((message, index) => (
               <article className={`message ${message.role}`} key={`${message.role}-${index}`}>
                 <span>{message.role === "assistant" ? "AI" : "You"}</span>
-                <p>{message.content}</p>
+                <div className="message-content">
+                  {splitMessage(message.content).map((part, partIndex) =>
+                    part.type === "code" ? (
+                      <div className="code-block" key={`${message.role}-${index}-code-${partIndex}`}>
+                        <div className="code-toolbar">
+                          <small>{part.language}</small>
+                          <button type="button" onClick={() => copyCode(part.content)} aria-label="Copy code">
+                            {copiedCode === part.content ? <Check size={15} /> : <Copy size={15} />}
+                            {copiedCode === part.content ? "Copied" : "Copy"}
+                          </button>
+                        </div>
+                        <pre>
+                          <code>{part.content}</code>
+                        </pre>
+                      </div>
+                    ) : (
+                      <p key={`${message.role}-${index}-text-${partIndex}`}>{part.content}</p>
+                    )
+                  )}
+                </div>
               </article>
             ))}
             {loading && (
