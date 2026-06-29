@@ -1,3 +1,4 @@
+
 <div align="center">
 
 # HARYX AI
@@ -24,6 +25,8 @@ HARYX AI is a coding workspace powered by Ollama.
 Designed for focused conversations, code generation, debugging, image understanding, and project workflows.
 
 ---
+
+<img width="1536" height="1024" alt="ChatGPT Image Jun 30, 2026, 01_12_41 AM" src="https://github.com/user-attachments/assets/ce93b2a5-de77-4987-90e7-c7680c892f20" />
 
 ## Features
 
