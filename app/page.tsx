@@ -29,6 +29,8 @@ import {
   Mic,
   Moon,
   Paperclip,
+  Folder,
+  FolderPlus,
   Pin,
   PinOff,
   Plus,
@@ -103,6 +105,15 @@ type Conversation = {
   updatedAt: number;
 };
 
+type ProjectSummary = {
+  name: string;
+  description: string;
+  lastModified: number;
+  messageCount: number;
+  fileCount: number;
+  pinned: boolean;
+};
+
 type ChatSettings = {
   provider: string;
   model: string;
@@ -121,6 +132,7 @@ type ApiStatus = {
   deploymentEnvironment?: string;
   buildVersion?: string;
   missing?: string[];
+  memoryUsage?: { heapUsed?: number };
 };
 
 type MessagePart =
@@ -128,7 +140,6 @@ type MessagePart =
   | { type: "code"; content: string; language: string }
   | { type: "table"; rows: string[][] };
 
-const QUICK_ACTIONS = ["Debug Code", "Explain Error", "Refactor", "Generate Project"];
 const TEXT_FILE_TYPES = new Set(["txt", "md", "json", "js", "ts", "jsx", "tsx", "py", "java", "cpp"]);
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
 const MAX_IMAGE_SIDE = 1600;
@@ -166,6 +177,30 @@ function createConversation(title = "New HARYX Chat"): Conversation {
     createdAt: now,
     updatedAt: now
   };
+}
+
+function createProjectSummary(name: string, conversations: Conversation[]): ProjectSummary {
+  const projectConversations = conversations.filter((conversation) => conversation.folder === name);
+  return {
+    name,
+    description: `${projectConversations.length} chat${projectConversations.length === 1 ? "" : "s"} in this workspace`,
+    lastModified: Math.max(...projectConversations.map((conversation) => conversation.updatedAt), 0) || Date.now(),
+    messageCount: projectConversations.reduce((total, conversation) => total + conversation.messages.length, 0),
+    fileCount: projectConversations.reduce(
+      (total, conversation) => total + conversation.messages.reduce((count, message) => count + (message.attachments?.length || 0), 0),
+      0
+    ),
+    pinned: projectConversations.some((conversation) => conversation.pinned)
+  };
+}
+
+function friendlyVoiceError(error?: string) {
+  if (!window.isSecureContext) return "Voice input needs HTTPS. Vercel is secure; localhost is allowed for testing.";
+  if (error === "not-allowed" || error === "permission-denied") return "Microphone permission was denied. Allow microphone access in your browser and try again.";
+  if (error === "no-speech") return "I did not hear anything. Try speaking again.";
+  if (error === "audio-capture") return "No microphone was found. Check your input device.";
+  if (error === "network") return "Speech service could not connect. Your browser may be blocking online speech recognition; try Chrome or Edge on HTTPS.";
+  return "Microphone could not start. Check browser permissions and try again.";
 }
 
 function normalizeConversation(conversation: Partial<Conversation>): Conversation {
@@ -529,6 +564,8 @@ export default function Home() {
   const [copiedMessage, setCopiedMessage] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [conversationSearch, setConversationSearch] = useState("");
+  const [projectSearch, setProjectSearch] = useState("");
+  const [activeProject, setActiveProject] = useState("Recent");
   const [listening, setListening] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
   const [voiceError, setVoiceError] = useState("");
@@ -549,6 +586,7 @@ export default function Home() {
 
   const title = activeConversation?.title || "New HARYX Chat";
   const messages = activeConversation?.messages || [];
+  const currentProject = activeConversation?.folder || activeProject;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -668,6 +706,8 @@ export default function Home() {
     const needle = conversationSearch.toLowerCase();
     return [...conversations]
       .filter((conversation) => {
+        const inProject = conversation.folder === currentProject;
+        if (!inProject) return false;
         if (!needle) return true;
         return (
           conversation.title.toLowerCase().includes(needle) ||
@@ -675,7 +715,16 @@ export default function Home() {
         );
       })
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
-  }, [conversationSearch, conversations]);
+  }, [conversationSearch, conversations, currentProject]);
+
+  const projects = useMemo(() => {
+    const needle = projectSearch.toLowerCase();
+    const names = Array.from(new Set(conversations.map((conversation) => conversation.folder || "Recent")));
+    return names
+      .map((name) => createProjectSummary(name, conversations))
+      .filter((project) => !needle || project.name.toLowerCase().includes(needle))
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.lastModified - a.lastModified);
+  }, [conversations, projectSearch]);
 
   const updateActiveConversation = useCallback((updater: (conversation: Conversation) => Conversation) => {
     setConversations((current) =>
@@ -704,6 +753,7 @@ export default function Home() {
 
   function createNewChat() {
     const next = createConversation();
+    next.folder = currentProject;
     setConversations((current) => [next, ...current]);
     setActiveConversationId(next.id);
     setInput("");
@@ -735,6 +785,53 @@ export default function Home() {
     setConversations((current) =>
       current.map((conversation) =>
         conversation.id === id ? { ...conversation, favorite: !conversation.favorite, updatedAt: Date.now() } : conversation
+      )
+    );
+  }
+
+  function createProject() {
+    const name = window.prompt("Project name", "New Project")?.trim();
+    if (!name) return;
+    const next = createConversation("New chat");
+    next.folder = name;
+    setConversations((current) => [next, ...current]);
+    setActiveProject(name);
+    setActiveConversationId(next.id);
+  }
+
+  function switchProject(name: string) {
+    setActiveProject(name);
+    const target = conversations
+      .filter((conversation) => conversation.folder === name)
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt)[0];
+    if (target) setActiveConversationId(target.id);
+  }
+
+  function renameProject(name: string) {
+    const nextName = window.prompt("Rename project", name)?.trim();
+    if (!nextName || nextName === name) return;
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.folder === name ? { ...conversation, folder: nextName, updatedAt: Date.now() } : conversation
+      )
+    );
+    if (activeProject === name) setActiveProject(nextName);
+  }
+
+  function deleteProject(name: string) {
+    if (projects.length <= 1) return;
+    const nextConversations = conversations.filter((conversation) => conversation.folder !== name);
+    const nextProject = nextConversations[0]?.folder || "Recent";
+    setConversations(nextConversations.length ? nextConversations : [createConversation()]);
+    setActiveProject(nextProject);
+    setActiveConversationId(nextConversations[0]?.id || "");
+  }
+
+  function togglePinProject(name: string) {
+    const shouldPin = !conversations.some((conversation) => conversation.folder === name && conversation.pinned);
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.folder === name ? { ...conversation, pinned: shouldPin, updatedAt: Date.now() } : conversation
       )
     );
   }
@@ -796,7 +893,7 @@ export default function Home() {
     setAttachments((current) => [...current, ...nextAttachments]);
   }, []);
 
-  function toggleVoiceInput() {
+  async function toggleVoiceInput() {
     if (listening) {
       recognitionRef.current?.stop();
       setListening(false);
@@ -806,6 +903,20 @@ export default function Home() {
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Recognition) {
       setVoiceError("Voice input is not supported in this browser. Use Chrome or Edge for SpeechRecognition.");
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      setVoiceError(friendlyVoiceError());
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices?.getUserMedia({ audio: true });
+      stream?.getTracks().forEach((track) => track.stop());
+    } catch (error) {
+      const name = error instanceof DOMException ? error.name.toLowerCase() : "";
+      setVoiceError(friendlyVoiceError(name.includes("denied") ? "permission-denied" : name));
       return;
     }
 
@@ -822,7 +933,7 @@ export default function Home() {
 
     recognition.onerror = (event) => {
       const error = "error" in event ? String(event.error) : "microphone error";
-      setVoiceError(`Microphone unavailable: ${error}. Check browser permissions and try again.`);
+      setVoiceError(friendlyVoiceError(error));
       setListening(false);
     };
 
@@ -852,7 +963,12 @@ export default function Home() {
     };
 
     recognitionRef.current = recognition;
-    recognition.start();
+    try {
+      recognition.start();
+    } catch {
+      setVoiceError("Voice input is already starting. Wait a moment and try again.");
+      setListening(false);
+    }
   }
 
   const submitMessage = useCallback(async (event?: FormEvent, quickAction?: string, retryMessages?: Message[]) => {
@@ -1035,12 +1151,17 @@ export default function Home() {
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
     >
+      <div className="premium-bg" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
       <header className="app-header">
         <a className="brand" href="#" aria-label="AI Coder home">
           <span className="brand-mark"><Sparkles size={20} /></span>
           <span>
             <input value={title} onChange={(event) => renameConversation(activeConversationId, event.target.value)} aria-label="Rename chat" />
-            <small>{statusText} · Built by HARYX</small>
+            <small>{statusText} - Built by HARYX</small>
           </span>
         </a>
         <div className="header-tools">
@@ -1052,7 +1173,10 @@ export default function Home() {
           <button type="button" onClick={exportMarkdown} aria-label="Export Markdown"><Download size={18} /></button>
           <button type="button" onClick={exportText} aria-label="Export TXT">TXT</button>
           <button type="button" onClick={exportJson} aria-label="Export JSON">{`{}`}</button>
+          <button type="button" onClick={() => importRef.current?.click()} aria-label="Import conversation"><Upload size={18} /></button>
           <button type="button" onClick={() => window.print()} aria-label="Export PDF"><FileCode2 size={18} /></button>
+          <button type="button" onClick={() => setStatusOpen((open) => !open)} aria-label="System status"><Bot size={18} /></button>
+          <button type="button" onClick={() => setSettingsOpen((open) => !open)} aria-label="Settings"><Settings size={18} /></button>
           <button type="button" onClick={clearAllChats} aria-label="Clear all chats"><Trash2 size={18} /></button>
           <a href="https://github.com/MHR-GEEK" target="_blank" rel="noreferrer" aria-label="GitHub"><Github size={18} /></a>
           <a href="https://www.instagram.com/md_haris_raza_/" target="_blank" rel="noreferrer" aria-label="Instagram"><Instagram size={18} /></a>
@@ -1060,7 +1184,45 @@ export default function Home() {
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
         </div>
+        <input ref={importRef} className="hidden-input" type="file" accept=".json" onChange={importConversation} />
       </header>
+
+      <AnimatePresence>
+        {settingsOpen && (
+          <motion.section className="floating-panel settings-panel" initial={{ opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.98 }}>
+            <div>
+              <strong>Settings</strong>
+              <button type="button" onClick={() => setSettingsOpen(false)} aria-label="Close settings"><X size={16} /></button>
+            </div>
+            <label>AI Provider<select value={settings.provider} onChange={(event) => setSettings((current) => ({ ...current, provider: event.target.value }))}><option value="ollama">Ollama</option><option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option><option value="groq">Groq</option><option value="together">Together AI</option><option value="openai-compatible">OpenAI Compatible</option></select></label>
+            <label>AI Model<input value={settings.model} onChange={(event) => setSettings((current) => ({ ...current, model: event.target.value }))} /></label>
+            <label>Accent Color<input type="color" value={settings.accent} onChange={(event) => setSettings((current) => ({ ...current, accent: event.target.value }))} /></label>
+            <label>Font Size<input type="range" min="14" max="19" value={settings.fontSize} onChange={(event) => setSettings((current) => ({ ...current, fontSize: Number(event.target.value) }))} /></label>
+            <label>Temperature<input type="range" min="0" max="1" step="0.05" value={settings.temperature} onChange={(event) => setSettings((current) => ({ ...current, temperature: Number(event.target.value) }))} /></label>
+            <label>Max Tokens<input type="number" min="256" max="16000" value={settings.maxTokens} onChange={(event) => setSettings((current) => ({ ...current, maxTokens: Number(event.target.value) }))} /></label>
+            <label className="toggle-row"><span>Animations</span><input type="checkbox" checked={settings.animations} onChange={(event) => setSettings((current) => ({ ...current, animations: event.target.checked }))} /></label>
+            <button type="button" onClick={() => downloadText("haryx-settings.json", JSON.stringify(settings, null, 2), "application/json")}>Export settings</button>
+          </motion.section>
+        )}
+
+        {statusOpen && (
+          <motion.section className="floating-panel status-panel" initial={{ opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.98 }}>
+            <div>
+              <strong>System Status</strong>
+              <button type="button" onClick={() => setStatusOpen(false)} aria-label="Close status"><X size={16} /></button>
+            </div>
+            <dl>
+              <dt>Provider</dt><dd>{apiStatus.provider || settings.provider}</dd>
+              <dt>Model</dt><dd>{apiStatus.currentModel || settings.model}</dd>
+              <dt>API Status</dt><dd>{apiStatus.apiStatus || "checking"}</dd>
+              <dt>Response Time</dt><dd>{apiStatus.responseTime ? `${apiStatus.responseTime}ms` : "n/a"}</dd>
+              <dt>Memory</dt><dd>{apiStatus.memoryUsage?.heapUsed ? `${Math.round(apiStatus.memoryUsage.heapUsed / 1024 / 1024)} MB` : "n/a"}</dd>
+              <dt>Build</dt><dd>{apiStatus.buildVersion || "local"}</dd>
+              <dt>Environment</dt><dd>{apiStatus.deploymentEnvironment || "local"}</dd>
+            </dl>
+          </motion.section>
+        )}
+      </AnimatePresence>
 
       <section className="chat-shell">
         <aside className="conversation-sidebar" aria-label="Conversation history">
@@ -1071,6 +1233,33 @@ export default function Home() {
               <input value={conversationSearch} onChange={(event) => setConversationSearch(event.target.value)} placeholder="Search chats" />
             </label>
           </div>
+
+          <section className="project-section" aria-label="Projects">
+            <div className="section-title">
+              <span><Folder size={15} /> Projects</span>
+              <button type="button" onClick={createProject} aria-label="Create project"><FolderPlus size={15} /></button>
+            </div>
+            <label className="sidebar-search compact">
+              <Search size={14} />
+              <input value={projectSearch} onChange={(event) => setProjectSearch(event.target.value)} placeholder="Search projects" />
+            </label>
+            <div className="project-list">
+              {projects.map((project) => (
+                <motion.article layout key={project.name} className={`project-item ${project.name === currentProject ? "active" : ""}`} whileHover={{ y: -1 }}>
+                  <button type="button" onClick={() => switchProject(project.name)}>
+                    <strong>{project.name}</strong>
+                    <small>{project.description}</small>
+                    <small>{project.messageCount} messages - {project.fileCount} files</small>
+                  </button>
+                  <div>
+                    <button type="button" onClick={() => togglePinProject(project.name)} aria-label="Pin project">{project.pinned ? <PinOff size={13} /> : <Pin size={13} />}</button>
+                    <button type="button" onClick={() => renameProject(project.name)} aria-label="Rename project"><Edit3 size={13} /></button>
+                    <button type="button" onClick={() => deleteProject(project.name)} aria-label="Delete project"><Trash2 size={13} /></button>
+                  </div>
+                </motion.article>
+              ))}
+            </div>
+          </section>
 
           <div className="conversation-list">
             <AnimatePresence initial={false}>
@@ -1091,6 +1280,12 @@ export default function Home() {
                     </span>
                   </button>
                   <div className="conversation-actions">
+                    <button type="button" onClick={() => toggleFavoriteConversation(conversation.id)} aria-label={conversation.favorite ? "Unfavorite chat" : "Favorite chat"}>
+                      <Star size={14} />
+                    </button>
+                    <button type="button" onClick={() => moveConversationToFolder(conversation.id)} aria-label="Move chat to project">
+                      <Folder size={14} />
+                    </button>
                     <button type="button" onClick={() => togglePinConversation(conversation.id)} aria-label={conversation.pinned ? "Unpin chat" : "Pin chat"}>
                       {conversation.pinned ? <PinOff size={14} /> : <Pin size={14} />}
                     </button>
@@ -1113,11 +1308,11 @@ export default function Home() {
 
         <div className="messages" ref={chatRef}>
           {!messages.length && (
-            <div className="welcome-panel">
-              <div className="welcome-orb"><Bot size={28} /></div>
-              <h1>What are we building today?</h1>
-              <p>Ask for code, upload screenshots, paste errors, attach files, or generate a complete project with HARYX AI.</p>
-            </div>
+            <motion.div className="welcome-panel" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }}>
+              <div className="welcome-orb"><Sparkles size={28} /></div>
+              <h1>HARYX AI</h1>
+              <p>Premium coding workspace ready for builds, debugging, screenshots, files, refactors, and deployment work.</p>
+            </motion.div>
           )}
 
           {visibleMessages.map((message) => (
@@ -1146,14 +1341,6 @@ export default function Home() {
         </div>
 
         <form className="composer" onSubmit={submitMessage}>
-          {!messages.length && (
-            <div className="quick-actions">
-              {QUICK_ACTIONS.map((action) => (
-                <button type="button" key={action} onClick={() => submitMessage(undefined, action)}>{action}</button>
-              ))}
-            </div>
-          )}
-
           {attachments.length > 0 && (
             <div className="attachment-strip">
               {attachments.map((attachment) => (
@@ -1200,7 +1387,7 @@ export default function Home() {
               {voiceError || liveTranscript}
             </div>
           )}
-          <div className="composer-hint"><Camera size={14} /> Enter sends · Shift+Enter adds a new line · Ctrl+M voice · Paste or drop screenshots anywhere</div>
+          <div className="composer-hint"><Camera size={14} /> Enter sends - Shift+Enter adds a new line - Ctrl+M voice - Paste or drop screenshots anywhere</div>
         </form>
       </section>
     </main>
