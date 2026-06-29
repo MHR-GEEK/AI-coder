@@ -1,133 +1,89 @@
-========================================================
- HARYX AI CODER
-========================================================
+<div align="center">
 
-Version      : v1.0
-Status       : Production
-Developer    : HARYX
-Repository   : MHR-GEEK/HARYX-AI-CODER
+# HARYX AI
 
---------------------------------------------------------
-OVERVIEW
---------------------------------------------------------
+### Local AI Coding Workspace
 
-HARYX AI is a premium AI coding workspace focused on
-speed, simplicity and developer productivity.
+Built on Ollama.
 
-Built for modern software development with support for
-AI chat, code generation, debugging, screenshots,
-projects and deployment.
+<br>
 
---------------------------------------------------------
-FEATURES
---------------------------------------------------------
+<img src="https://img.shields.io/badge/Ollama-Local-black?style=flat-square">
+<img src="https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=nextdotjs">
+<img src="https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript">
+<img src="https://img.shields.io/badge/TailwindCSS-4-38BDF8?style=flat-square&logo=tailwindcss">
 
-✓ AI Coding Assistant
-✓ Project Workspace
-✓ Multi-Session Chat
-✓ Image Understanding
-✓ Screenshot Analysis
-✓ File Upload
-✓ Code Generation
-✓ Code Refactoring
-✓ Debug Assistant
-✓ Markdown Export
-✓ Text Export
-✓ Copy Responses
-✓ Responsive UI
-✓ AMOLED Dark Theme
-✓ Gold Luxury Interface
-✓ Keyboard Shortcuts
-✓ Mobile Optimized
+</div>
 
---------------------------------------------------------
-TECH STACK
---------------------------------------------------------
+---
 
-Frontend
----------
-• Next.js
-• React
-• TypeScript
-• Tailwind CSS
-• Framer Motion
+## Overview
 
-Backend
---------
-• Next.js API Routes
-• AI SDK
-• Streaming Responses
+HARYX AI is a local coding workspace powered by Ollama.
 
-AI Support
-----------
-• Ollama
-• OpenAI Compatible APIs
-• OpenRouter
-• Groq
-• Together AI
+Designed for focused conversations, code generation, debugging, image understanding, and project workflows.
 
-Deployment
-----------
-• Vercel
+---
 
---------------------------------------------------------
-SECURITY
---------------------------------------------------------
+## Features
 
-API Keys
-Environment Variables
-Server-side Validation
-Protected Routes
-Secure Requests
+* AI Chat
+* Code Generation
+* Debug Assistance
+* Image Analysis
+* File Uploads
+* Markdown Export
+* Project Workspace
+* Local Inference
 
-No secrets are stored inside source files.
+---
 
---------------------------------------------------------
-PROJECT STRUCTURE
---------------------------------------------------------
+## Stack
 
-app/
-components/
-hooks/
-lib/
-public/
-styles/
-utils/
+```text
+Next.js
+React
+TypeScript
+Tailwind CSS
+Framer Motion
+Ollama
+```
 
---------------------------------------------------------
-BUILD
---------------------------------------------------------
+---
+
+## Installation
+
+```bash
+git clone https://github.com/MHR-GEEK/HARYX-AI-CODER.git
+
+cd HARYX-AI-CODER
 
 npm install
-
 npm run dev
+```
 
-npm run build
+---
 
-npm start
+## Requirements
 
---------------------------------------------------------
-STATUS
---------------------------------------------------------
+```text
+Node.js 20+
+Ollama
+A downloaded model
+```
 
-Build        : Stable
-Deployment   : Live
-Performance  : Optimized
-Theme        : AMOLED Gold
-UI           : Premium
+---
 
---------------------------------------------------------
-VISION
---------------------------------------------------------
+## Philosophy
 
-Build faster.
-Think bigger.
-Ship smarter.
+> Fast enough to disappear.
+>
+> Simple enough to stay.
 
---------------------------------------------------------
-COPYRIGHT
---------------------------------------------------------
+---
 
-© HARYX
+<div align="center">
 
-All rights reserved.
+Built by **HARYX**
+
+</div>
