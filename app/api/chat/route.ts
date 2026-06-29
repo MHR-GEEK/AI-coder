@@ -22,6 +22,15 @@ type ChatPayload = {
   files?: UploadedFile[];
 };
 
+type ProviderConfig = {
+  provider: "ollama" | "openai-compatible";
+  baseUrl: string;
+  apiKey?: string;
+  textModel: string;
+  visionModel: string;
+  missing: string[];
+};
+
 const SYSTEM_PROMPT = `You are HARYX AI Coder, a human-friendly elite programming assistant.
 You can help with architecture, implementation, debugging, algorithms, UI, AI engineering, prompts, deployment, and error analysis.
 Give direct working solutions, explain tradeoffs briefly, and ask for missing details only when they are required.
@@ -29,11 +38,10 @@ When images or files are provided, inspect them for code, terminal errors, UI bu
 Format coding answers with short sections: Explanation, Root Cause, Solution, Updated Code, and Next Recommendation. Explain first, then show code, then explain improvements. Avoid giant walls of text.`;
 
 const CONNECTION_HELP =
-  "The AI backend is not connected yet. For Ollama cloud, set OLLAMA_BASE_URL=https://ollama.com and add OLLAMA_API_KEY. For local Ollama, run `ollama serve`, pull the configured model, and set OLLAMA_BASE_URL=http://127.0.0.1:11434.";
+  "The AI backend is not connected yet. Configure AI_PROVIDER, AI_BASE_URL, AI_API_KEY, and AI_MODEL in your local or Vercel environment. For local Ollama, run `ollama serve` and set AI_PROVIDER=ollama with AI_BASE_URL=http://127.0.0.1:11434.";
 
-const FALLBACK_OLLAMA_API_KEY = "636e1d145daa4dd38a62b0be2659e3d4.iIF70AWxlFMDl3cFGFk1vyRH";
 const IMAGE_FALLBACK_NOTE =
-  "The request included image attachments, but the configured vision model could not process them. I can still help from your written prompt and attached file metadata. To enable real screenshot reading on Vercel, set OLLAMA_VISION_MODEL to an Ollama model your key can access that supports images.";
+  "The request included image attachments, but the configured vision model could not process them. I can still help from your written prompt and attached file metadata. To enable real screenshot reading, set AI_VISION_MODEL to a model your provider can access that supports images.";
 
 function cleanBase64Image(image?: string | null) {
   if (!image) return null;
@@ -63,6 +71,38 @@ function openAiChatUrl(baseUrl: string) {
   if (baseUrl.endsWith("/v1")) return `${baseUrl}/chat/completions`;
   if (baseUrl.endsWith("/api")) return `${baseUrl.replace(/\/api$/, "")}/v1/chat/completions`;
   return `${baseUrl}/v1/chat/completions`;
+}
+
+function getProviderConfig(): ProviderConfig {
+  const provider = (process.env.AI_PROVIDER || process.env.OLLAMA_PROVIDER || "ollama").toLowerCase();
+  const baseUrl = normalizeBaseUrl(
+    process.env.AI_BASE_URL ||
+      process.env.OPENAI_BASE_URL ||
+      process.env.OLLAMA_BASE_URL ||
+      (provider === "openai" ? "https://api.openai.com/v1" : "https://ollama.com")
+  );
+  const apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || process.env.OLLAMA_API_KEY;
+  const textModel =
+    process.env.AI_MODEL ||
+    process.env.OPENAI_MODEL ||
+    process.env.OLLAMA_MODEL ||
+    (provider === "openai" ? "gpt-4.1-mini" : "gpt-oss:120b");
+  const visionModel = process.env.AI_VISION_MODEL || process.env.OPENAI_VISION_MODEL || process.env.OLLAMA_VISION_MODEL || textModel;
+  const normalizedProvider = provider === "openai" || provider === "openai-compatible" ? "openai-compatible" : "ollama";
+  const missing: string[] = [];
+
+  if (!baseUrl) missing.push("AI_BASE_URL");
+  if (!textModel) missing.push("AI_MODEL");
+  if (!apiKey && !isLocalBaseUrl(baseUrl)) missing.push("AI_API_KEY");
+
+  return {
+    provider: normalizedProvider,
+    baseUrl,
+    apiKey,
+    textModel,
+    visionModel,
+    missing
+  };
 }
 
 function withTimeout(ms: number) {
@@ -127,6 +167,25 @@ async function postJson(url: string, body: unknown, apiKey?: string) {
   }
 }
 
+async function postJsonWithRetry(url: string, body: unknown, apiKey?: string) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await postJson(url, body, apiKey);
+      if (response.status !== 429 && response.status < 500) return response;
+      if (attempt === 1) return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 1) throw error;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 700));
+  }
+
+  throw lastError;
+}
+
 async function readFailure(response: Response) {
   const details = await response.text();
   return details.slice(0, 1200);
@@ -148,15 +207,16 @@ function isVisionModelFailure(status: number, details: string) {
 export async function POST(request: NextRequest) {
   try {
     const payload = (await request.json()) as ChatPayload;
-    const apiKey = process.env.OLLAMA_API_KEY || FALLBACK_OLLAMA_API_KEY;
-    const baseUrl = normalizeBaseUrl(process.env.OLLAMA_BASE_URL || "https://ollama.com");
-    const textModel = process.env.OLLAMA_MODEL || "gpt-oss:120b";
-    const visionModel = process.env.OLLAMA_VISION_MODEL || "minimax-m3";
+    const config = getProviderConfig();
     const images = cleanBase64Images(payload);
 
-    if (!apiKey && !isLocalBaseUrl(baseUrl)) {
+    if (config.missing.length) {
       return NextResponse.json(
-        { error: "Missing OLLAMA_API_KEY. Add it to Vercel environment variables." },
+        {
+          error: `Missing AI configuration: ${config.missing.join(", ")}.`,
+          details: CONNECTION_HELP,
+          missing: config.missing
+        },
         { status: 500 }
       );
     }
@@ -182,52 +242,61 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const nativeResponse = await postJson(
-      apiChatUrl(baseUrl),
-      {
-        model: images.length ? visionModel : textModel,
-        messages,
-        stream: false,
-        options: {
-          temperature: 0.35,
-          top_p: 0.9,
-          num_ctx: 8192
-        }
-      },
-      apiKey
+    const ollamaBody = {
+      model: images.length ? config.visionModel : config.textModel,
+      messages,
+      stream: false,
+      options: {
+        temperature: 0.35,
+        top_p: 0.9,
+        num_ctx: 8192
+      }
+    };
+    const openAiBody = {
+      model: images.length ? config.visionModel : config.textModel,
+      messages: buildOpenAiMessages(messages, images),
+      temperature: 0.35
+    };
+
+    const primaryResponse = await postJsonWithRetry(
+      config.provider === "ollama" ? apiChatUrl(config.baseUrl) : openAiChatUrl(config.baseUrl),
+      config.provider === "ollama" ? ollamaBody : openAiBody,
+      config.apiKey
     );
 
-    if (nativeResponse.ok) {
-      const data = await nativeResponse.json();
+    if (primaryResponse.ok) {
+      const data = await primaryResponse.json();
       return NextResponse.json({
-        content: data?.message?.content || "I could not read a response from Ollama.",
-        model: data?.model || (images.length ? visionModel : textModel)
+        content:
+          config.provider === "ollama"
+            ? data?.message?.content || "I could not read a response from Ollama."
+            : data?.choices?.[0]?.message?.content || "I could not read a response from the AI provider.",
+        model: data?.model || (images.length ? config.visionModel : config.textModel)
       });
     }
 
-    const nativeDetails = await readFailure(nativeResponse);
-    const openAiResponse = await postJson(
-      openAiChatUrl(baseUrl),
-      {
-        model: images.length ? visionModel : textModel,
-        messages: buildOpenAiMessages(messages, images),
-        temperature: 0.35
-      },
-      apiKey
-    );
+    const primaryDetails = await readFailure(primaryResponse);
+    const fallbackUrl = config.provider === "ollama" ? openAiChatUrl(config.baseUrl) : apiChatUrl(config.baseUrl);
+    const fallbackBody = config.provider === "ollama" ? openAiBody : ollamaBody;
+    const fallbackResponse = await postJsonWithRetry(fallbackUrl, fallbackBody, config.apiKey);
 
-    if (openAiResponse.ok) {
-      const data = await openAiResponse.json();
+    if (fallbackResponse.ok) {
+      const data = await fallbackResponse.json();
       return NextResponse.json({
-        content: data?.choices?.[0]?.message?.content || "I could not read a response from the AI provider.",
-        model: data?.model || (images.length ? visionModel : textModel)
+        content:
+          config.provider === "ollama"
+            ? data?.choices?.[0]?.message?.content || "I could not read a response from the AI provider."
+            : data?.message?.content || "I could not read a response from Ollama.",
+        model: data?.model || (images.length ? config.visionModel : config.textModel)
       });
     }
 
-    const openAiDetails = await readFailure(openAiResponse);
-    if (images.length && (isVisionModelFailure(nativeResponse.status, nativeDetails) || isVisionModelFailure(openAiResponse.status, openAiDetails))) {
+    const fallbackDetails = await readFailure(fallbackResponse);
+
+    if (images.length && (isVisionModelFailure(primaryResponse.status, primaryDetails) || isVisionModelFailure(fallbackResponse.status, fallbackDetails))) {
       const textOnlyMessages = messages.map((message) => {
         const { images: _images, ...rest } = message;
+        void _images;
         return rest;
       });
       const lastUser = [...textOnlyMessages].reverse().find((message) => message.role === "user");
@@ -235,26 +304,39 @@ export async function POST(request: NextRequest) {
         lastUser.content = `${lastUser.content}\n\n${IMAGE_FALLBACK_NOTE}`;
       }
 
-      const textFallbackResponse = await postJson(
-        apiChatUrl(baseUrl),
-        {
-          model: textModel,
-          messages: textOnlyMessages,
-          stream: false,
-          options: {
-            temperature: 0.35,
-            top_p: 0.9,
-            num_ctx: 8192
-          }
-        },
-        apiKey
+      const textFallbackBody =
+        config.provider === "ollama"
+          ? {
+              model: config.textModel,
+              messages: textOnlyMessages,
+              stream: false,
+              options: {
+                temperature: 0.35,
+                top_p: 0.9,
+                num_ctx: 8192
+              }
+            }
+          : {
+              model: config.textModel,
+              messages: textOnlyMessages,
+              temperature: 0.35
+            };
+
+      const textFallbackResponse = await postJsonWithRetry(
+        config.provider === "ollama" ? apiChatUrl(config.baseUrl) : openAiChatUrl(config.baseUrl),
+        textFallbackBody,
+        config.apiKey
       );
 
       if (textFallbackResponse.ok) {
         const data = await textFallbackResponse.json();
+        const content =
+          config.provider === "ollama"
+            ? data?.message?.content
+            : data?.choices?.[0]?.message?.content;
         return NextResponse.json({
-          content: `${IMAGE_FALLBACK_NOTE}\n\n${data?.message?.content || "Send the visible error text from the screenshot and I will debug it."}`,
-          model: data?.model || textModel,
+          content: `${IMAGE_FALLBACK_NOTE}\n\n${content || "Send the visible error text from the screenshot and I will debug it."}`,
+          model: data?.model || config.textModel,
           warning: "vision-model-unavailable"
         });
       }
@@ -263,7 +345,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: CONNECTION_HELP,
-        details: `Native /api/chat failed with ${nativeResponse.status}: ${nativeDetails}. OpenAI-compatible /v1/chat/completions failed with ${openAiResponse.status}: ${openAiDetails}`
+        details: `Primary provider request failed with ${primaryResponse.status}: ${primaryDetails}. Fallback request failed with ${fallbackResponse.status}: ${fallbackDetails}`
       },
       { status: 502 }
     );

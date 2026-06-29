@@ -25,9 +25,13 @@ import {
   ImagePlus,
   Instagram,
   Loader2,
+  MessageSquare,
   Mic,
   Moon,
   Paperclip,
+  Pin,
+  PinOff,
+  Plus,
   RefreshCcw,
   Search,
   Send,
@@ -37,6 +41,32 @@ import {
   Trash2,
   X
 } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+
+type SpeechRecognitionEvent = Event & {
+  results: SpeechRecognitionResultList;
+};
+
+type SpeechRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: (() => void) | null;
+  onerror: ((event: Event & { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognition;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
 
 type Role = "user" | "assistant";
 
@@ -59,6 +89,15 @@ type Message = {
   error?: boolean;
 };
 
+type Conversation = {
+  id: string;
+  title: string;
+  messages: Message[];
+  pinned: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
 type MessagePart =
   | { type: "text"; content: string }
   | { type: "code"; content: string; language: string }
@@ -69,9 +108,28 @@ const TEXT_FILE_TYPES = new Set(["txt", "md", "json", "js", "ts", "jsx", "tsx", 
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
 const MAX_IMAGE_SIDE = 1600;
 const IMAGE_QUALITY = 0.88;
+const STORAGE_KEY = "haryx-ai-coder-conversations";
+const DEVELOPER_REPLY =
+  "HARYX AI Coder was built by HARYX, Founder & Developer of HARYX AI Coder.\n\nGitHub: https://github.com/MHR-GEEK\nInstagram: https://www.instagram.com/md_haris_raza_/";
 
 function uid() {
   return crypto.randomUUID();
+}
+
+function createConversation(title = "New HARYX Chat"): Conversation {
+  const now = Date.now();
+  return {
+    id: uid(),
+    title,
+    messages: [],
+    pinned: false,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function isDeveloperQuestion(content: string) {
+  return /\b(who\s+(made|built|developed)|developer|about\s+developer|built\s+by)\b/i.test(content);
 }
 
 function formatTime(timestamp: number) {
@@ -80,6 +138,19 @@ function formatTime(timestamp: number) {
 
 function fileExtension(name: string) {
   return name.split(".").pop()?.toLowerCase() || "";
+}
+
+function downloadText(filename: string, content: string, type: string) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function safeFilename(title: string, extension: string) {
+  return `${title.replace(/[^\w-]+/g, "-").toLowerCase() || "haryx-chat"}.${extension}`;
 }
 
 function resizeImage(file: File) {
@@ -231,6 +302,7 @@ const CodeBlock = memo(function CodeBlock({
   copied: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(content.split("\n").length > 22);
+  const extension = language && language !== "code" ? language.replace(/[^\w-]/g, "") : "txt";
 
   return (
     <div className="code-block">
@@ -240,6 +312,10 @@ const CodeBlock = memo(function CodeBlock({
           {content.split("\n").length > 22 && (
             <button type="button" onClick={() => setCollapsed(!collapsed)}>{collapsed ? "Expand" : "Collapse"}</button>
           )}
+          <button type="button" onClick={() => downloadText(`haryx-code.${extension}`, content, "text/plain")} aria-label="Download code">
+            <Download size={15} />
+            Download
+          </button>
           <button type="button" onClick={() => onCopy(content)} aria-label="Copy code">
             {copied ? <Check size={15} /> : <Copy size={15} />}
             {copied ? "Copied" : "Copy"}
@@ -357,8 +433,8 @@ const ChatMessage = memo(function ChatMessage({
 
 export default function Home() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const [title, setTitle] = useState("AI Coder Chat");
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState("");
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(false);
@@ -366,10 +442,22 @@ export default function Home() {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [copiedMessage, setCopiedMessage] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [conversationSearch, setConversationSearch] = useState("");
+  const [listening, setListening] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState("");
+  const [voiceError, setVoiceError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+
+  const activeConversation = useMemo(() => {
+    return conversations.find((conversation) => conversation.id === activeConversationId) || conversations[0];
+  }, [activeConversationId, conversations]);
+
+  const title = activeConversation?.title || "New HARYX Chat";
+  const messages = activeConversation?.messages || [];
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -377,19 +465,39 @@ export default function Home() {
 
   useEffect(() => {
     const saved = localStorage.getItem("ai-coder-chat");
-    if (!saved) return;
+    const savedConversations = localStorage.getItem(STORAGE_KEY);
     try {
-      const parsed = JSON.parse(saved);
-      setMessages(parsed.messages || []);
-      setTitle(parsed.title || "AI Coder Chat");
+      if (savedConversations) {
+        const parsed = JSON.parse(savedConversations) as Conversation[];
+        const normalized = parsed.length ? parsed : [createConversation()];
+        setConversations(normalized);
+        setActiveConversationId(normalized[0].id);
+        return;
+      }
+
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const migrated = createConversation(parsed.title || "AI Coder Chat");
+        migrated.messages = parsed.messages || [];
+        setConversations([migrated]);
+        setActiveConversationId(migrated.id);
+        localStorage.removeItem("ai-coder-chat");
+        return;
+      }
+
+      const initial = createConversation();
+      setConversations([initial]);
+      setActiveConversationId(initial.id);
     } catch {
-      localStorage.removeItem("ai-coder-chat");
+      const initial = createConversation();
+      setConversations([initial]);
+      setActiveConversationId(initial.id);
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("ai-coder-chat", JSON.stringify({ title, messages }));
-  }, [messages, title]);
+    if (conversations.length) localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+  }, [conversations]);
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
@@ -401,6 +509,18 @@ export default function Home() {
     textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
   }, [input]);
 
+  useEffect(() => {
+    function handleShortcut(event: globalThis.KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "m") {
+        event.preventDefault();
+        toggleVoiceInput();
+      }
+    }
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  });
+
   const visibleMessages = useMemo(() => {
     if (!search.trim()) return messages;
     const needle = search.toLowerCase();
@@ -409,10 +529,83 @@ export default function Home() {
 
   const statusText = useMemo(() => {
     if (loading) return "Generating";
-    if (backendStatus === "connected") return "Ollama online";
+    if (backendStatus === "connected") return "AI online";
     if (backendStatus === "needs-setup") return "Needs attention";
     return "Ready";
   }, [backendStatus, loading]);
+
+  const sortedConversations = useMemo(() => {
+    const needle = conversationSearch.toLowerCase();
+    return [...conversations]
+      .filter((conversation) => {
+        if (!needle) return true;
+        return (
+          conversation.title.toLowerCase().includes(needle) ||
+          conversation.messages.some((message) => message.content.toLowerCase().includes(needle))
+        );
+      })
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
+  }, [conversationSearch, conversations]);
+
+  const updateActiveConversation = useCallback((updater: (conversation: Conversation) => Conversation) => {
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === activeConversationId
+          ? { ...updater(conversation), updatedAt: Date.now() }
+          : conversation
+      )
+    );
+  }, [activeConversationId]);
+
+  const setMessages = useCallback((next: Message[] | ((messages: Message[]) => Message[])) => {
+    updateActiveConversation((conversation) => ({
+      ...conversation,
+      messages: typeof next === "function" ? next(conversation.messages) : next
+    }));
+  }, [updateActiveConversation]);
+
+  function renameConversation(id: string, nextTitle: string) {
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === id ? { ...conversation, title: nextTitle || "Untitled Chat", updatedAt: Date.now() } : conversation
+      )
+    );
+  }
+
+  function createNewChat() {
+    const next = createConversation();
+    setConversations((current) => [next, ...current]);
+    setActiveConversationId(next.id);
+    setInput("");
+    setAttachments([]);
+  }
+
+  function deleteConversation(id: string) {
+    setConversations((current) => {
+      const next = current.filter((conversation) => conversation.id !== id);
+      if (!next.length) {
+        const fresh = createConversation();
+        setActiveConversationId(fresh.id);
+        return [fresh];
+      }
+      if (id === activeConversationId) setActiveConversationId(next[0].id);
+      return next;
+    });
+  }
+
+  function togglePinConversation(id: string) {
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === id ? { ...conversation, pinned: !conversation.pinned, updatedAt: Date.now() } : conversation
+      )
+    );
+  }
+
+  function clearAllChats() {
+    const fresh = createConversation();
+    setConversations([fresh]);
+    setActiveConversationId(fresh.id);
+  }
 
   const readFiles = useCallback(async (files: FileList | File[]) => {
     const nextAttachments = await Promise.all(
@@ -440,6 +633,65 @@ export default function Home() {
     setAttachments((current) => [...current, ...nextAttachments]);
   }, []);
 
+  function toggleVoiceInput() {
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) {
+      setVoiceError("Voice input is not supported in this browser. Use Chrome or Edge for SpeechRecognition.");
+      return;
+    }
+
+    const recognition = new Recognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = navigator.language || "en-US";
+
+    recognition.onstart = () => {
+      setVoiceError("");
+      setLiveTranscript("");
+      setListening(true);
+    };
+
+    recognition.onerror = (event) => {
+      const error = "error" in event ? String(event.error) : "microphone error";
+      setVoiceError(`Microphone unavailable: ${error}. Check browser permissions and try again.`);
+      setListening(false);
+    };
+
+    recognition.onend = () => {
+      setListening(false);
+      setLiveTranscript("");
+    };
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let interim = "";
+      let finalText = "";
+
+      for (let index = event.results.length - 1; index >= 0; index -= 1) {
+        const result = event.results[index];
+        const transcript = result[0]?.transcript || "";
+        if (result.isFinal) {
+          finalText = `${transcript} ${finalText}`;
+        } else {
+          interim = `${transcript} ${interim}`;
+        }
+      }
+
+      if (finalText.trim()) {
+        setInput((current) => `${current}${current.trim() ? " " : ""}${finalText.trim()}`);
+      }
+      setLiveTranscript(interim.trim());
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+  }
+
   const submitMessage = useCallback(async (event?: FormEvent, quickAction?: string, retryMessages?: Message[]) => {
     event?.preventDefault();
     const retryUserMessage = retryMessages ? [...retryMessages].reverse().find((message) => message.role === "user") : undefined;
@@ -458,8 +710,18 @@ export default function Home() {
     const requestAttachments = retryMessages ? retryUserMessage?.attachments || [] : attachments;
 
     setMessages(nextMessages);
+    if (!messages.length && content) renameConversation(activeConversationId, content.slice(0, 56));
     setInput("");
     setAttachments([]);
+
+    if (isDeveloperQuestion(content)) {
+      setMessages([
+        ...nextMessages,
+        { id: uid(), role: "assistant", content: DEVELOPER_REPLY, timestamp: Date.now() }
+      ]);
+      return;
+    }
+
     setLoading(true);
     abortRef.current = new AbortController();
 
@@ -504,7 +766,7 @@ export default function Home() {
       setLoading(false);
       abortRef.current = null;
     }
-  }, [attachments, input, loading, messages]);
+  }, [activeConversationId, attachments, input, loading, messages, setMessages]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -558,12 +820,16 @@ export default function Home() {
 
   function exportMarkdown() {
     const markdown = messages.map((message) => `## ${message.role === "user" ? "User" : "HARYX AI"} - ${formatTime(message.timestamp)}\n\n${message.content}`).join("\n\n");
-    const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${title.replace(/[^\w-]+/g, "-").toLowerCase() || "ai-coder-chat"}.md`;
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadText(safeFilename(title, "md"), markdown, "text/markdown");
+  }
+
+  function exportText() {
+    const text = messages.map((message) => `${message.role === "user" ? "User" : "HARYX AI"} (${formatTime(message.timestamp)})\n${message.content}`).join("\n\n---\n\n");
+    downloadText(safeFilename(title, "txt"), text, "text/plain");
+  }
+
+  function exportJson() {
+    downloadText(safeFilename(title, "json"), JSON.stringify(activeConversation, null, 2), "application/json");
   }
 
   return (
@@ -577,8 +843,8 @@ export default function Home() {
         <a className="brand" href="#" aria-label="AI Coder home">
           <span className="brand-mark"><Sparkles size={20} /></span>
           <span>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} aria-label="Rename chat" />
-            <small>{statusText} · HARYX</small>
+            <input value={title} onChange={(event) => renameConversation(activeConversationId, event.target.value)} aria-label="Rename chat" />
+            <small>{statusText} · Built by HARYX</small>
           </span>
         </a>
         <div className="header-tools">
@@ -586,9 +852,12 @@ export default function Home() {
             <Search size={16} />
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search chat" />
           </label>
+          <button type="button" onClick={createNewChat} aria-label="New chat"><Plus size={18} /></button>
           <button type="button" onClick={exportMarkdown} aria-label="Export Markdown"><Download size={18} /></button>
+          <button type="button" onClick={exportText} aria-label="Export TXT">TXT</button>
+          <button type="button" onClick={exportJson} aria-label="Export JSON">{`{}`}</button>
           <button type="button" onClick={() => window.print()} aria-label="Export PDF"><FileCode2 size={18} /></button>
-          <button type="button" onClick={() => setMessages([])} aria-label="Clear chat"><Trash2 size={18} /></button>
+          <button type="button" onClick={clearAllChats} aria-label="Clear all chats"><Trash2 size={18} /></button>
           <a href="https://github.com/MHR-GEEK" target="_blank" rel="noreferrer" aria-label="GitHub"><Github size={18} /></a>
           <a href="https://www.instagram.com/md_haris_raza_/" target="_blank" rel="noreferrer" aria-label="Instagram"><Instagram size={18} /></a>
           <button type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle theme">
@@ -598,6 +867,54 @@ export default function Home() {
       </header>
 
       <section className="chat-shell">
+        <aside className="conversation-sidebar" aria-label="Conversation history">
+          <div className="sidebar-top">
+            <button type="button" onClick={createNewChat}><Plus size={16} /> New chat</button>
+            <label className="sidebar-search">
+              <Search size={15} />
+              <input value={conversationSearch} onChange={(event) => setConversationSearch(event.target.value)} placeholder="Search chats" />
+            </label>
+          </div>
+
+          <div className="conversation-list">
+            <AnimatePresence initial={false}>
+              {sortedConversations.map((conversation) => (
+                <motion.article
+                  layout
+                  key={conversation.id}
+                  className={`conversation-item ${conversation.id === activeConversationId ? "active" : ""}`}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                >
+                  <button type="button" className="conversation-main" onClick={() => setActiveConversationId(conversation.id)}>
+                    <MessageSquare size={15} />
+                    <span>
+                      <strong>{conversation.title}</strong>
+                      <small>{conversation.messages.length} messages</small>
+                    </span>
+                  </button>
+                  <div className="conversation-actions">
+                    <button type="button" onClick={() => togglePinConversation(conversation.id)} aria-label={conversation.pinned ? "Unpin chat" : "Pin chat"}>
+                      {conversation.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+                    </button>
+                    <button type="button" onClick={() => deleteConversation(conversation.id)} aria-label="Delete chat"><Trash2 size={14} /></button>
+                  </div>
+                </motion.article>
+              ))}
+            </AnimatePresence>
+          </div>
+
+          <div className="developer-card">
+            <strong>HARYX</strong>
+            <span>Founder & Developer of HARYX AI Coder</span>
+            <div>
+              <a href="https://github.com/MHR-GEEK" target="_blank" rel="noreferrer"><Github size={15} /> GitHub</a>
+              <a href="https://www.instagram.com/md_haris_raza_/" target="_blank" rel="noreferrer"><Instagram size={15} /> Instagram</a>
+            </div>
+          </div>
+        </aside>
+
         <div className="messages" ref={chatRef}>
           {!messages.length && (
             <div className="welcome-panel">
@@ -662,7 +979,9 @@ export default function Home() {
               <Paperclip size={19} />
               <input type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,.json,.js,.ts,.jsx,.tsx,.py,.java,.cpp,.zip" multiple onChange={(event: ChangeEvent<HTMLInputElement>) => event.target.files && readFiles(event.target.files)} />
             </label>
-            <button className="tool-button" type="button" aria-label="Mic coming soon"><Mic size={19} /></button>
+            <button className={`tool-button ${listening ? "recording" : ""}`} type="button" onClick={toggleVoiceInput} aria-label={listening ? "Stop voice input" : "Start voice input"}>
+              {listening ? <Loader2 size={19} className="spin" /> : <Mic size={19} />}
+            </button>
             <textarea
               ref={textareaRef}
               value={input}
@@ -680,7 +999,12 @@ export default function Home() {
               </button>
             )}
           </div>
-          <div className="composer-hint"><Camera size={14} /> Enter sends · Shift+Enter adds a new line · Paste or drop screenshots anywhere</div>
+          {(liveTranscript || voiceError) && (
+            <div className={`voice-status ${voiceError ? "error" : ""}`}>
+              {voiceError || liveTranscript}
+            </div>
+          )}
+          <div className="composer-hint"><Camera size={14} /> Enter sends · Shift+Enter adds a new line · Ctrl+M voice · Paste or drop screenshots anywhere</div>
         </form>
       </section>
     </main>
