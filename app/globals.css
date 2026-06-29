@@ -1,35 +1,43 @@
 :root {
   color-scheme: dark;
-  --bg: #08090d;
-  --bg-2: #10131a;
-  --panel: rgba(20, 23, 31, 0.68);
-  --panel-strong: rgba(25, 29, 39, 0.9);
+  --bg: #06070a;
+  --bg-2: #0c111b;
+  --panel: rgba(18, 24, 38, 0.68);
+  --panel-strong: rgba(23, 29, 45, 0.9);
   --glass: rgba(255, 255, 255, 0.072);
-  --text: #f7f7f4;
-  --muted: #a7abb7;
-  --line: rgba(255, 255, 255, 0.12);
-  --line-strong: rgba(255, 255, 255, 0.2);
-  --accent: #35f7d2;
-  --accent-2: #9b8cff;
-  --danger: #ff6b7d;
+  --text: #ffffff;
+  --muted: #a5b4c3;
+  --subtle: #64748b;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --accent: #7c3aed;
+  --accent-2: #8b5cf6;
+  --highlight: #22d3ee;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
   --shadow: rgba(0, 0, 0, 0.36);
   --radius: 16px;
 }
 
 :root[data-theme="light"] {
-  color-scheme: light;
-  --bg: #f7f8fb;
-  --bg-2: #edf1f7;
-  --panel: rgba(255, 255, 255, 0.72);
-  --panel-strong: rgba(255, 255, 255, 0.94);
-  --glass: rgba(255, 255, 255, 0.82);
-  --text: #16181d;
-  --muted: #636b7a;
-  --line: rgba(19, 25, 38, 0.12);
-  --line-strong: rgba(19, 25, 38, 0.22);
-  --accent: #00a88e;
-  --accent-2: #6b5cff;
-  --danger: #c92642;
+  color-scheme: dark;
+  --bg: #0b0d13;
+  --bg-2: #111827;
+  --panel: rgba(23, 29, 45, 0.72);
+  --panel-strong: rgba(30, 38, 58, 0.94);
+  --glass: rgba(255, 255, 255, 0.08);
+  --text: #ffffff;
+  --muted: #cbd5e1;
+  --subtle: #94a3b8;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.18);
+  --accent: #8b5cf6;
+  --accent-2: #7c3aed;
+  --highlight: #22d3ee;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
   --shadow: rgba(26, 34, 52, 0.12);
 }
 
@@ -98,8 +106,8 @@ a {
   z-index: -2;
   overflow: hidden;
   background:
-    radial-gradient(circle at 18% 8%, rgba(53, 247, 210, 0.12), transparent 28rem),
-    radial-gradient(circle at 82% 18%, rgba(155, 140, 255, 0.12), transparent 30rem),
+    radial-gradient(circle at 18% 8%, rgba(124, 58, 237, 0.25), transparent 28rem),
+    radial-gradient(circle at 82% 18%, rgba(34, 211, 238, 0.13), transparent 30rem),
     linear-gradient(140deg, var(--bg), var(--bg-2) 58%, var(--bg));
 }
 
@@ -122,7 +130,7 @@ a {
   opacity: 0.48;
   filter: blur(34px);
   background:
-    conic-gradient(from 140deg at 50% 50%, transparent, rgba(53, 247, 210, 0.14), transparent, rgba(155, 140, 255, 0.16), transparent);
+    conic-gradient(from 140deg at 50% 50%, transparent, rgba(124, 58, 237, 0.22), transparent, rgba(34, 211, 238, 0.16), transparent);
   animation: auroraDrift 24s ease-in-out infinite alternate;
 }
 
@@ -160,6 +168,16 @@ a {
   grid-template-rows: auto 1fr;
   gap: 14px;
   padding: 18px;
+}
+
+.chat-app::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 45%), rgba(34, 211, 238, 0.13), rgba(124, 58, 237, 0.08) 36%, transparent 70%);
+  transition: opacity 0.2s ease;
 }
 
 .chat-app.dragging::after {
@@ -205,6 +223,7 @@ a {
 
 .brand,
 .header-tools,
+.status-badge,
 .search-box,
 .message,
 .message-meta,
@@ -237,7 +256,8 @@ a {
 .conversation-actions button,
 .project-item div button,
 .section-title button,
-.floating-panel button {
+.floating-panel button,
+.developer-card a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -262,7 +282,7 @@ a {
 
 .brand-mark {
   color: var(--accent);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(53, 247, 210, 0.12));
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.22), rgba(34, 211, 238, 0.12));
 }
 
 .header-tools button:hover,
@@ -273,7 +293,8 @@ a {
 .conversation-actions button:hover,
 .project-item div button:hover,
 .section-title button:hover,
-.floating-panel button:hover {
+.floating-panel button:hover,
+.developer-card a:hover {
   transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   background: color-mix(in srgb, var(--glass) 76%, var(--accent) 10%);
@@ -327,6 +348,36 @@ a {
   border: 0;
   background: transparent;
   color: var(--text);
+}
+
+.status-badge {
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.status-badge i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--warning);
+  box-shadow: 0 0 18px var(--warning);
+}
+
+.status-badge.online i {
+  background: var(--success);
+  box-shadow: 0 0 18px var(--success);
+}
+
+.status-badge.attention i {
+  background: var(--danger);
+  box-shadow: 0 0 18px var(--danger);
 }
 
 .hidden-input {
@@ -408,7 +459,7 @@ a {
   grid-row: 1 / 3;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 14px;
   padding: 16px;
   border-radius: 22px;
@@ -559,6 +610,56 @@ a {
 
 .conversation-main span {
   min-width: 0;
+}
+
+.developer-card {
+  display: grid;
+  gap: 8px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(124, 58, 237, 0.16), rgba(34, 211, 238, 0.07)),
+    rgba(255, 255, 255, 0.035);
+  box-shadow: 0 16px 50px rgba(124, 58, 237, 0.1);
+}
+
+.developer-card strong,
+.developer-card span {
+  display: block;
+}
+
+.developer-card strong {
+  font-size: 1.08rem;
+  letter-spacing: 0;
+}
+
+.developer-card span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.dev-badge {
+  width: max-content;
+  padding: 4px 8px;
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  border-radius: 999px;
+  color: var(--highlight) !important;
+  background: rgba(34, 211, 238, 0.08);
+  font-size: 0.7rem !important;
+}
+
+.developer-card div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.developer-card a {
+  min-height: 32px;
+  padding: 0 10px;
+  color: var(--text);
+  font-size: 0.8rem;
 }
 
 .conversation-actions {

@@ -21,7 +21,9 @@ import {
   Edit3,
   FileArchive,
   FileCode2,
+  Github,
   ImagePlus,
+  Instagram,
   Loader2,
   MessageSquare,
   Mic,
@@ -113,9 +115,6 @@ type ProjectSummary = {
 };
 
 type ChatSettings = {
-  model: string;
-  temperature: number;
-  maxTokens: number;
   animations: boolean;
 };
 
@@ -136,9 +135,6 @@ const STORE_NAME = "conversations";
 const DEVELOPER_REPLY =
   "HARYX AI Coder was built by HARYX, Founder & Developer of HARYX AI Coder.\n\nGitHub: https://github.com/MHR-GEEK\nInstagram: https://www.instagram.com/md_haris_raza_/";
 const DEFAULT_SETTINGS: ChatSettings = {
-  model: "gpt-4.1-mini",
-  temperature: 0.35,
-  maxTokens: 4096,
   animations: true
 };
 
@@ -552,7 +548,6 @@ export default function Home() {
   const [voiceError, setVoiceError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [advancedSettingsOpen, setAdvancedSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<ChatSettings>(DEFAULT_SETTINGS);
   const chatRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -974,10 +969,7 @@ export default function Home() {
             content: item.content
           })),
           settings: {
-            provider: "openai",
-            model: settings.model,
-            temperature: settings.temperature,
-            maxTokens: settings.maxTokens
+            provider: "ollama"
           }
         })
       });
@@ -1025,7 +1017,7 @@ export default function Home() {
           timestamp: Date.now(),
           content:
             error instanceof Error
-              ? `# Connection Issue\n\n${error.message}\n\n## Try Again\n\n- Check your Vercel environment variables.\n- Verify the OpenAI API key is valid.\n- Retry the request.`
+              ? `# Connection Issue\n\n${error.message}\n\n## Try Again\n\n- Check your Vercel environment variables.\n- Verify the Ollama API key is valid.\n- Retry the request.`
               : "# Connection Issue\n\nThe AI backend could not be reached."
         }
       ]);
@@ -1033,7 +1025,7 @@ export default function Home() {
       setLoading(false);
       abortRef.current = null;
     }
-  }, [activeConversationId, attachments, input, loading, messages, setMessages, settings.maxTokens, settings.model, settings.temperature]);
+  }, [activeConversationId, attachments, input, loading, messages, setMessages]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -1090,9 +1082,25 @@ export default function Home() {
     downloadText(safeFilename(title, "md"), markdown, "text/markdown");
   }
 
+  function exportText() {
+    const text = messages.map((message) => `${message.role === "user" ? "User" : "HARYX AI"} (${formatTime(message.timestamp)})\n${message.content}`).join("\n\n---\n\n");
+    downloadText(safeFilename(title, "txt"), text, "text/plain");
+  }
+
+  function copyChat() {
+    const text = messages.map((message) => `${message.role === "user" ? "User" : "HARYX AI"}: ${message.content}`).join("\n\n");
+    navigator.clipboard.writeText(text || title);
+  }
+
+  function handlePointerMove(event: React.PointerEvent<HTMLElement>) {
+    event.currentTarget.style.setProperty("--mx", `${event.clientX}px`);
+    event.currentTarget.style.setProperty("--my", `${event.clientY}px`);
+  }
+
   return (
     <main
       className={`chat-app ${isDragging ? "dragging" : ""}`}
+      onPointerMove={handlePointerMove}
       onDragOver={handleDragOver}
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
@@ -1111,17 +1119,22 @@ export default function Home() {
           </span>
         </a>
         <div className="header-tools">
-          <button type="button" onClick={createNewChat} aria-label="New chat"><Plus size={18} /></button>
           <label className="search-box">
             <Search size={16} />
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search chat" />
           </label>
-          <button type="button" onClick={() => document.querySelector(".conversation-sidebar")?.scrollIntoView({ behavior: "smooth", block: "nearest" })} aria-label="Projects"><Folder size={18} /></button>
+          <span className={`status-badge ${backendStatus === "connected" ? "online" : backendStatus === "needs-setup" ? "attention" : ""}`}><i />Ollama {backendStatus === "connected" ? "Online" : "Ready"}</span>
+          <button type="button" onClick={exportMarkdown} aria-label="Download chat"><Download size={18} /></button>
+          <button type="button" onClick={exportText} aria-label="Export TXT">TXT</button>
+          <button type="button" onClick={copyChat} aria-label="Copy chat"><Copy size={18} /></button>
+          <button type="button" onClick={clearAllChats} aria-label="Delete chat"><Trash2 size={18} /></button>
           <button type="button" onClick={() => topUploadRef.current?.click()} aria-label="Upload file"><Upload size={18} /></button>
           <button type="button" onClick={() => setSettingsOpen((open) => !open)} aria-label="Settings"><Settings size={18} /></button>
           <button type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle theme">
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
+          <a href="https://github.com/MHR-GEEK" target="_blank" rel="noreferrer" aria-label="GitHub"><Github size={18} /></a>
+          <a href="https://www.instagram.com/md_haris_raza_/" target="_blank" rel="noreferrer" aria-label="Instagram"><Instagram size={18} /></a>
         </div>
         <input ref={topUploadRef} className="hidden-input" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,.json,.js,.ts,.jsx,.tsx,.py,.java,.cpp,.zip" multiple onChange={(event: ChangeEvent<HTMLInputElement>) => event.target.files && readFiles(event.target.files)} />
       </header>
@@ -1140,18 +1153,6 @@ export default function Home() {
               <button type="button" onClick={exportMarkdown}><Download size={15} />Export chat</button>
               <button type="button" onClick={clearAllChats}><Trash2 size={15} />Clear chats</button>
             </div>
-            <button className="advanced-toggle" type="button" onClick={() => setAdvancedSettingsOpen((open) => !open)}>
-              {advancedSettingsOpen ? "Hide advanced" : "Advanced"}
-            </button>
-            <AnimatePresence>
-              {advancedSettingsOpen && (
-                <motion.div className="advanced-settings" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}>
-                  <label>Model<input value={settings.model} onChange={(event) => setSettings((current) => ({ ...current, model: event.target.value }))} /></label>
-                  <label>Temperature<input type="range" min="0" max="1" step="0.05" value={settings.temperature} onChange={(event) => setSettings((current) => ({ ...current, temperature: Number(event.target.value) }))} /></label>
-                  <label>Max Tokens<input type="number" min="256" max="16000" value={settings.maxTokens} onChange={(event) => setSettings((current) => ({ ...current, maxTokens: Number(event.target.value) }))} /></label>
-                </motion.div>
-              )}
-            </AnimatePresence>
           </motion.section>
         )}
       </AnimatePresence>
@@ -1227,6 +1228,16 @@ export default function Home() {
               ))}
             </AnimatePresence>
           </div>
+
+          <motion.div className="developer-card" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+            <span className="dev-badge">Developer</span>
+            <strong>HARYX</strong>
+            <span>Founder & Developer of HARYX AI Coder</span>
+            <div>
+              <a href="https://github.com/MHR-GEEK" target="_blank" rel="noreferrer"><Github size={15} />GitHub</a>
+              <a href="https://www.instagram.com/md_haris_raza_/" target="_blank" rel="noreferrer"><Instagram size={15} />Instagram</a>
+            </div>
+          </motion.div>
         </aside>
 
         <div className="messages" ref={chatRef}>
