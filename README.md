@@ -32,3 +32,4 @@ Add the same environment variables in **Project Settings > Environment Variables
 The API key is used only inside `app/api/chat/route.ts`, so it is not exposed to browser JavaScript.
 
 Important: Vercel cannot reach `http://127.0.0.1:11434` on your computer. For production, set `OLLAMA_BASE_URL` to a public hosted Ollama-compatible or OpenAI-compatible API endpoint. Keep `OLLAMA_API_KEY` in Vercel only, never in frontend code.
+"# AI-coder" 
