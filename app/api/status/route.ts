@@ -12,7 +12,7 @@ const PROVIDERS: Record<Provider, { key: string; baseUrl: string; model: string 
   together: { key: "TOGETHER_API_KEY", baseUrl: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
   "openai-compatible": { key: "AI_API_KEY", baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini" }
 };
-const FALLBACK_OLLAMA_API_KEY = "636e1d145daa4dd38a62b0be2659e3d4.iIF70AWxlFMDl3cFGFk1vyRH";
+const FALLBACK_OLLAMA_API_KEY = "6147e9ca6c1a41d1b0ce48590b35a73d.g-kKu0psr1pSgeh-mL4wj0ia";
 
 function providerFromEnv(): Provider {
   const raw = (process.env.AI_PROVIDER || "ollama").toLowerCase();
