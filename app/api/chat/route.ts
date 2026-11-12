@@ -325,6 +325,20 @@ function streamText(text: string, init?: ResponseInit) {
   });
 }
 
+async function providerStreamWithRetry(config: ProviderConfig, messages: ChatMessage[], images: string[], model: string) {
+  // NVIDIA hosted endpoints can briefly return 503 while their safety-screening
+  // service is unavailable. Retry transient provider failures before surfacing them.
+  const retryable = new Set([429, 500, 502, 503, 504]);
+  const delays = [700, 1500, 3000];
+  let response: Response | undefined;
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    response = await providerStream(config, messages, images, model);
+    if (response.ok || !retryable.has(response.status) || attempt === delays.length) return response;
+    await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+  }
+  return response!;
+}
+
 async function providerStream(config: ProviderConfig, messages: ChatMessage[], images: string[], model: string) {
   if (config.mode === "ollama") {
     return fetch(apiChatUrl(config.baseUrl), {
@@ -474,7 +488,7 @@ export async function POST(request: NextRequest) {
     const images = cleanBase64Images(payload);
     const messages = prepareMessages(payload, images);
     const model = images.length ? config.visionModel : config.textModel;
-    const response = await providerStream(config, messages, images, model);
+    const response = await providerStreamWithRetry(config, messages, images, model);
 
     console.info("[HARYX AI] provider response", {
       provider: config.provider,
@@ -492,7 +506,7 @@ export async function POST(request: NextRequest) {
       const fallbackMessages = textOnlyMessages(messages);
       const lastUser = [...fallbackMessages].reverse().find((message) => message.role === "user");
       if (lastUser) lastUser.content = `${lastUser.content}\n\n${warning}`;
-      const fallback = await providerStream(config, fallbackMessages, [], config.textModel);
+      const fallback = await providerStreamWithRetry(config, fallbackMessages, [], config.textModel);
 
       if (fallback.ok) {
         const stream = proxyProviderStream(config, fallback);
