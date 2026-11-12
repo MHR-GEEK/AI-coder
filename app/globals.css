@@ -1284,3 +1284,116 @@ textarea {
     overflow: visible;
   }
 }
+
+
+/* HARYX voice plasma: visual state follows the active microphone or TTS session. */
+.voice-plasma {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 14px;
+  min-height: 74px;
+  overflow: hidden;
+  padding: 10px 16px;
+  border: 1px solid rgba(139, 92, 246, 0.32);
+  border-radius: 18px;
+  background:
+    radial-gradient(ellipse at 18% 50%, rgba(34, 211, 238, 0.13), transparent 44%),
+    radial-gradient(ellipse at 82% 50%, rgba(139, 92, 246, 0.18), transparent 48%),
+    rgba(8, 9, 18, 0.88);
+  box-shadow: 0 0 28px rgba(124, 58, 237, 0.12), inset 0 0 24px rgba(34, 211, 238, 0.05);
+}
+.voice-plasma::before,
+.voice-plasma::after {
+  content: "";
+  position: absolute;
+  width: 48%;
+  height: 170%;
+  top: -35%;
+  left: -8%;
+  border-radius: 50%;
+  filter: blur(22px);
+  opacity: .7;
+  pointer-events: none;
+  background: conic-gradient(from 0deg, transparent, rgba(34, 211, 238, .3), rgba(139, 92, 246, .5), transparent 68%);
+  animation: plasmaOrbit 5s linear infinite;
+}
+.voice-plasma::after {
+  left: auto;
+  right: -8%;
+  opacity: .55;
+  animation-direction: reverse;
+  animation-duration: 7s;
+}
+.plasma-core {
+  position: relative;
+  z-index: 1;
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 34px;
+  min-width: 0;
+}
+.plasma-core span {
+  display: block;
+  width: 4px;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #67e8f9, #a78bfa 70%, #f0d29a);
+  box-shadow: 0 0 12px rgba(103, 232, 249, .65);
+  transform-origin: center;
+  animation: plasmaWave 1.05s ease-in-out infinite;
+  animation-play-state: paused;
+}
+.voice-plasma.active .plasma-core span { animation-play-state: running; }
+.plasma-core span:nth-child(2n) { animation-delay: -.22s; }
+.plasma-core span:nth-child(3n) { animation-delay: -.48s; }
+.plasma-core span:nth-child(4n) { animation-delay: -.7s; }
+.voice-plasma.speaking .plasma-core span { animation-duration: .72s; }
+.voice-plasma.listening .plasma-core span { animation-duration: .48s; }
+.plasma-label {
+  position: relative;
+  z-index: 1;
+  grid-column: 2;
+  grid-row: 1;
+  color: #d8c4ff;
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .16em;
+}
+.plasma-subtitle {
+  position: relative;
+  z-index: 1;
+  grid-column: 2;
+  grid-row: 2;
+  color: rgba(226, 232, 240, .62);
+  font-size: .72rem;
+}
+.voice-plasma button {
+  position: relative;
+  z-index: 2;
+  grid-column: 3;
+  grid-row: 1 / 3;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 11px;
+  background: rgba(255,255,255,.07);
+  color: #e9ddff;
+  cursor: pointer;
+}
+@keyframes plasmaWave {
+  0%, 100% { height: 7px; opacity: .55; transform: scaleY(.7); }
+  50% { height: 31px; opacity: 1; transform: scaleY(1); }
+}
+@keyframes plasmaOrbit {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-plasma::before, .voice-plasma::after, .plasma-core span { animation-duration: 2.5s; }
+}
