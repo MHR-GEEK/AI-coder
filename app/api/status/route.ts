@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 type Provider = "ollama" | "openai" | "openrouter" | "groq" | "together" | "openai-compatible";
 
 const PROVIDERS: Record<Provider, { key: string; baseUrl: string; model: string }> = {
-  ollama: { key: "OLLAMA_API_KEY", baseUrl: "https://ollama.com", model: "gpt-oss:120b" },
+  ollama: { key: "OLLAMA_API_KEY", baseUrl: "https://ollama.com", model: "ttempvnn/Puwaer-Qwen3-Next-80B-A3B-Thinking-SFT-Uncensored-Q4-K-M" },
   openai: { key: "OPENAI_API_KEY", baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
   openrouter: { key: "OPENROUTER_API_KEY", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4.1-mini" },
   groq: { key: "GROQ_API_KEY", baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile" },
