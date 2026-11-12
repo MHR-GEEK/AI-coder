@@ -4,7 +4,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 // Temporary protected-preview smoke test. Remove after the provider is verified.
-export async function GET() {
+export async function GET(request: Request) {
   const apiKey = process.env.OLLAMA_API_KEY;
   const model = process.env.AI_MODEL || "ttempvnn/Puwaer-Qwen3-Next-80B-A3B-Thinking-SFT-Uncensored-04-Q-K-M";
   if (!apiKey) return NextResponse.json({ ok: false, reason: "OLLAMA_API_KEY is missing" }, { status: 500 });
