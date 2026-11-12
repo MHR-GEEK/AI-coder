@@ -1352,6 +1352,55 @@ export default function Home() {
       </div>
       <CursorTrail />
       <header className="app-header">
+        <div className="settings-wrap">
+          <button className={`settings-trigger ${settingsOpen ? "active" : ""}`} type="button" onClick={() => setSettingsOpen((open) => !open)} aria-expanded={settingsOpen} aria-controls="haryx-settings-menu" aria-label="Open settings">
+            <Settings2 size={17} /><span>Settings</span>
+          </button>
+          {settingsOpen && (
+            <section className="settings-panel" id="haryx-settings-menu" aria-label="Settings">
+              <div className="settings-panel-heading">
+                <div><strong>Settings</strong><small>Personalize your workspace</small></div>
+                <button type="button" onClick={() => setSettingsOpen(false)} aria-label="Close settings"><X size={16} /></button>
+              </div>
+              <div className="settings-group">
+                <span className="settings-section-label">Appearance</span>
+                <label className="settings-row">
+                  <span><strong>Theme</strong><small>Choose your workspace appearance</small></span>
+                  <select value={theme} onChange={(event) => setTheme(event.target.value as "dark" | "light")}>
+                    <option value="dark">Dark</option><option value="light">Light</option>
+                  </select>
+                </label>
+              </div>
+              <div className="settings-group">
+                <span className="settings-section-label">Voice</span>
+                <label className="settings-row settings-stack">
+                  <span><strong>Voice pack</strong><small>Voices installed in your browser or device</small></span>
+                  <select value={selectedVoiceName} onChange={(event) => setSelectedVoiceName(event.target.value)}>
+                    <option value="">System default</option>
+                    {availableVoices.map((voice) => <option key={voice.name + voice.lang} value={voice.name}>{voice.name} · {voice.lang}</option>)}
+                  </select>
+                </label>
+                <label className="settings-range">
+                  <span><strong>Speaking speed</strong><small>{speechRate.toFixed(2)}×</small></span>
+                  <input type="range" min="0.75" max="1.5" step="0.05" value={speechRate} onChange={(event) => setSpeechRate(Number(event.target.value))} />
+                </label>
+                <label className="settings-range">
+                  <span><strong>Voice pitch</strong><small>{speechPitch.toFixed(2)}</small></span>
+                  <input type="range" min="0.75" max="1.5" step="0.05" value={speechPitch} onChange={(event) => setSpeechPitch(Number(event.target.value))} />
+                </label>
+                {availableVoices.length === 0 && <p className="settings-note">No voice packs detected. Enable a text-to-speech voice in your device settings.</p>}
+              </div>
+              <div className="settings-group">
+                <span className="settings-section-label">General</span>
+                <label className="settings-row">
+                  <span><strong>Enter to send</strong><small>Shift + Enter adds a new line</small></span>
+                  <input className="settings-switch" type="checkbox" checked={enterToSend} onChange={(event) => setEnterToSend(event.target.checked)} />
+                </label>
+              </div>
+              <p className="settings-footnote">Settings are saved on this device.</p>
+            </section>
+          )}
+        </div>
         <a className="brand" href="#" aria-label="AI Coder home">
           <span className="brand-mark"><Sparkles size={20} /></span>
           <span>
