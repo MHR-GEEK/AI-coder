@@ -206,14 +206,7 @@ function cleanBase64Images(payload: ChatPayload) {
 }
 
 function apiChatUrl(baseUrl: string) {
-  // Ollama Cloud is OpenAI-compatible. Use its /v1/chat/completions route,
-  // matching the Cloud API; local Ollama continues to use /api/chat.
-  if (isLocalBaseUrl(baseUrl)) {
-    return baseUrl.endsWith("/api") ? `${baseUrl}/chat` : `${baseUrl}/api/chat`;
-  }
-  if (baseUrl.endsWith("/v1")) return `${baseUrl}/chat/completions`;
-  if (baseUrl.endsWith("/api")) return `${baseUrl.replace(/\/api$/, "")}/v1/chat/completions`;
-  return `${baseUrl}/v1/chat/completions`;
+  return baseUrl.endsWith("/api") ? `${baseUrl}/chat` : `${baseUrl}/api/chat`;
 }
 
 function openAiChatUrl(baseUrl: string) {
