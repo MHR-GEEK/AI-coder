@@ -1370,9 +1370,6 @@ export default function Home() {
           <button type="button" onClick={copyChat} aria-label="Copy chat"><Copy size={18} /></button>
           <button type="button" onClick={clearAllChats} aria-label="Delete chat"><Trash2 size={18} /></button>
           <button type="button" onClick={() => topUploadRef.current?.click()} aria-label="Upload file"><Upload size={18} /></button>
-          <button type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle theme">
-            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
           <a href="https://github.com/MHR-GEEK" target="_blank" rel="noreferrer" aria-label="GitHub"><Github size={18} /></a>
           <a href="https://www.instagram.com/md_haris_raza_/" target="_blank" rel="noreferrer" aria-label="Instagram"><Instagram size={18} /></a>
           <span className="profile-avatar" aria-label="HARYX profile">H</span>
