@@ -326,13 +326,20 @@ function streamText(text: string, init?: ResponseInit) {
 }
 
 async function providerStreamWithRetry(config: ProviderConfig, messages: ChatMessage[], images: string[], model: string) {
-  // NVIDIA hosted endpoints can briefly return 503 while their safety-screening
-  // service is unavailable. Retry transient provider failures before surfacing them.
+  // Keep connection attempts inside Vercel's function time budget.
+  // Repeated long retries previously hit the platform's hard timeout.
   const retryable = new Set([429, 500, 502, 503, 504]);
-  const delays = [700, 1500, 3000];
+  const delays = [800];
   let response: Response | undefined;
   for (let attempt = 0; attempt <= delays.length; attempt += 1) {
-    response = await providerStream(config, messages, images, model);
+    try {
+      response = await providerStream(config, messages, images, model);
+    } catch (error) {
+      if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+        return streamText("The AI provider took too long to respond. Please retry in a moment.", { status: 504 });
+      }
+      throw error;
+    }
     if (response.ok || !retryable.has(response.status) || attempt === delays.length) return response;
     await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
   }
@@ -344,6 +351,7 @@ async function providerStream(config: ProviderConfig, messages: ChatMessage[], i
     return fetch(apiChatUrl(config.baseUrl), {
       method: "POST",
       headers: authHeaders(config),
+      signal: AbortSignal.timeout(22000),
       body: JSON.stringify({
         model,
         messages,
@@ -361,6 +369,7 @@ async function providerStream(config: ProviderConfig, messages: ChatMessage[], i
   return fetch(openAiChatUrl(config.baseUrl), {
     method: "POST",
     headers: authHeaders(config),
+    signal: AbortSignal.timeout(22000),
     body: JSON.stringify({
       model,
       messages: buildOpenAiMessages(messages, images),
@@ -369,6 +378,23 @@ async function providerStream(config: ProviderConfig, messages: ChatMessage[], i
       max_tokens: config.maxTokens
     })
   });
+}
+
+async function readWithIdleTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs = 25000
+) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("AI stream idle timeout")), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function proxyOllamaStream(response: Response) {
@@ -382,7 +408,7 @@ function proxyOllamaStream(response: Response) {
         let buffer = "";
         try {
           while (true) {
-            const { value, done } = await reader.read();
+            const { value, done } = await readWithIdleTimeout(reader);
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split("\n");
