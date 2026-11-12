@@ -1273,7 +1273,7 @@ export default function Home() {
             <Search size={16} />
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search chat" />
           </label>
-          <span className={`status-badge ${backendStatus === "connected" ? "online" : backendStatus === "needs-setup" ? "attention" : ""}`}><i />Ollama {backendStatus === "connected" ? "Online" : "Ready"}</span>
+          <span className={`status-badge ${backendStatus === "connected" ? "online" : backendStatus === "needs-setup" ? "attention" : ""}`}><i />NVIDIA AI {backendStatus === "connected" ? "Online" : "Ready"}</span>
           <button type="button" onClick={exportMarkdown} aria-label="Download chat"><Download size={18} /></button>
           <button type="button" onClick={exportText} aria-label="Export TXT">TXT</button>
           <button type="button" onClick={copyChat} aria-label="Copy chat"><Copy size={18} /></button>
