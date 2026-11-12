@@ -27,6 +27,7 @@ import {
   Loader2,
   MessageSquare,
   Mic,
+  Moon,
   Paperclip,
   Folder,
   FolderPlus,
@@ -36,10 +37,10 @@ import {
   RefreshCcw,
   Search,
   Send,
-  Settings2,
   Sparkles,
   Square,
   Star,
+  Sun,
   Trash2,
   Upload,
   Volume2,
@@ -643,13 +644,6 @@ const ChatMessage = memo(function ChatMessage({
 
 export default function Home() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoiceName, setSelectedVoiceName] = useState("");
-  const [speechRate, setSpeechRate] = useState(1);
-  const [speechPitch, setSpeechPitch] = useState(1);
-  const [enterToSend, setEnterToSend] = useState(true);
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState("");
   const [input, setInput] = useState("");
@@ -687,43 +681,6 @@ export default function Home() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("haryx-user-settings");
-      if (saved) {
-        const parsed = JSON.parse(saved) as {
-          theme?: "dark" | "light";
-          selectedVoiceName?: string;
-          speechRate?: number;
-          speechPitch?: number;
-          enterToSend?: boolean;
-        };
-        if (parsed.theme === "dark" || parsed.theme === "light") setTheme(parsed.theme);
-        if (typeof parsed.selectedVoiceName === "string") setSelectedVoiceName(parsed.selectedVoiceName);
-        if (typeof parsed.speechRate === "number") setSpeechRate(Math.min(1.5, Math.max(0.75, parsed.speechRate)));
-        if (typeof parsed.speechPitch === "number") setSpeechPitch(Math.min(1.5, Math.max(0.75, parsed.speechPitch)));
-        if (typeof parsed.enterToSend === "boolean") setEnterToSend(parsed.enterToSend);
-      }
-    } catch {
-      localStorage.removeItem("haryx-user-settings");
-    }
-    setSettingsLoaded(true);
-
-    const loadVoices = () => setAvailableVoices(window.speechSynthesis?.getVoices() || []);
-    loadVoices();
-    if ("speechSynthesis" in window) window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
-    return () => {
-      if ("speechSynthesis" in window) window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!settingsLoaded) return;
-    localStorage.setItem("haryx-user-settings", JSON.stringify({
-      theme, selectedVoiceName, speechRate, speechPitch, enterToSend
-    }));
-  }, [theme, selectedVoiceName, speechRate, speechPitch, enterToSend, settingsLoaded]);
 
   useEffect(() => {
     readConversationsFromDb()
@@ -1106,15 +1063,9 @@ export default function Home() {
     }
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(message.content);
-    const selectedVoice = availableVoices.find((voice) => voice.name === selectedVoiceName);
-    if (selectedVoice) {
-      utterance.voice = selectedVoice;
-      utterance.lang = selectedVoice.lang;
-    } else {
-      utterance.lang = navigator.language || "en-IN";
-    }
-    utterance.rate = speechRate;
-    utterance.pitch = speechPitch;
+    utterance.lang = navigator.language || "en-IN";
+    utterance.rate = 1;
+    utterance.pitch = 1;
     utterance.onstart = () => setSpeakingMessageId(message.id);
     utterance.onend = () => {
       setSpeakingMessageId(null);
@@ -1268,7 +1219,7 @@ export default function Home() {
   }, [activeConversationId, attachments, input, loading, messages, setMessages]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (enterToSend && event.key === "Enter" && !event.shiftKey) {
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       submitMessage();
     }
@@ -1352,55 +1303,6 @@ export default function Home() {
       </div>
       <CursorTrail />
       <header className="app-header">
-        <div className="settings-wrap">
-          <button className={`settings-trigger ${settingsOpen ? "active" : ""}`} type="button" onClick={() => setSettingsOpen((open) => !open)} aria-expanded={settingsOpen} aria-controls="haryx-settings-menu" aria-label="Open settings">
-            <Settings2 size={17} /><span>Settings</span>
-          </button>
-          {settingsOpen && (
-            <section className="settings-panel" id="haryx-settings-menu" aria-label="Settings">
-              <div className="settings-panel-heading">
-                <div><strong>Settings</strong><small>Personalize your workspace</small></div>
-                <button type="button" onClick={() => setSettingsOpen(false)} aria-label="Close settings"><X size={16} /></button>
-              </div>
-              <div className="settings-group">
-                <span className="settings-section-label">Appearance</span>
-                <label className="settings-row">
-                  <span><strong>Theme</strong><small>Choose your workspace appearance</small></span>
-                  <select value={theme} onChange={(event) => setTheme(event.target.value as "dark" | "light")}>
-                    <option value="dark">Dark</option><option value="light">Light</option>
-                  </select>
-                </label>
-              </div>
-              <div className="settings-group">
-                <span className="settings-section-label">Voice</span>
-                <label className="settings-row settings-stack">
-                  <span><strong>Voice pack</strong><small>Voices installed in your browser or device</small></span>
-                  <select value={selectedVoiceName} onChange={(event) => setSelectedVoiceName(event.target.value)}>
-                    <option value="">System default</option>
-                    {availableVoices.map((voice) => <option key={voice.name + voice.lang} value={voice.name}>{voice.name} · {voice.lang}</option>)}
-                  </select>
-                </label>
-                <label className="settings-range">
-                  <span><strong>Speaking speed</strong><small>{speechRate.toFixed(2)}×</small></span>
-                  <input type="range" min="0.75" max="1.5" step="0.05" value={speechRate} onChange={(event) => setSpeechRate(Number(event.target.value))} />
-                </label>
-                <label className="settings-range">
-                  <span><strong>Voice pitch</strong><small>{speechPitch.toFixed(2)}</small></span>
-                  <input type="range" min="0.75" max="1.5" step="0.05" value={speechPitch} onChange={(event) => setSpeechPitch(Number(event.target.value))} />
-                </label>
-                {availableVoices.length === 0 && <p className="settings-note">No voice packs detected. Enable a text-to-speech voice in your device settings.</p>}
-              </div>
-              <div className="settings-group">
-                <span className="settings-section-label">General</span>
-                <label className="settings-row">
-                  <span><strong>Enter to send</strong><small>Shift + Enter adds a new line</small></span>
-                  <input className="settings-switch" type="checkbox" checked={enterToSend} onChange={(event) => setEnterToSend(event.target.checked)} />
-                </label>
-              </div>
-              <p className="settings-footnote">Settings are saved on this device.</p>
-            </section>
-          )}
-        </div>
         <a className="brand" href="#" aria-label="AI Coder home">
           <span className="brand-mark"><Sparkles size={20} /></span>
           <span>
@@ -1419,6 +1321,9 @@ export default function Home() {
           <button type="button" onClick={copyChat} aria-label="Copy chat"><Copy size={18} /></button>
           <button type="button" onClick={clearAllChats} aria-label="Delete chat"><Trash2 size={18} /></button>
           <button type="button" onClick={() => topUploadRef.current?.click()} aria-label="Upload file"><Upload size={18} /></button>
+          <button type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle theme">
+            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
           <a href="https://github.com/MHR-GEEK" target="_blank" rel="noreferrer" aria-label="GitHub"><Github size={18} /></a>
           <a href="https://www.instagram.com/md_haris_raza_/" target="_blank" rel="noreferrer" aria-label="Instagram"><Instagram size={18} /></a>
           <span className="profile-avatar" aria-label="HARYX profile">H</span>
