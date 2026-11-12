@@ -666,6 +666,8 @@ export default function Home() {
   const topUploadRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamFrameRef = useRef<number | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   const activeConversation = useMemo(() => {
@@ -737,6 +739,8 @@ export default function Home() {
 
   useEffect(() => {
     return () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (streamFrameRef.current !== null) cancelAnimationFrame(streamFrameRef.current);
       recognitionRef.current?.stop();
       window.speechSynthesis?.cancel();
     };
@@ -980,19 +984,38 @@ export default function Home() {
     recognition.interimResults = true;
     recognition.lang = navigator.language || "en-US";
 
+    const clearSilenceTimer = () => {
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+    };
+    const armSilenceTimer = () => {
+      clearSilenceTimer();
+      silenceTimerRef.current = setTimeout(() => {
+        recognition.stop();
+        setListening(false);
+        setLiveTranscript("");
+        setVoiceError("Microphone paused after 8 seconds of silence.");
+      }, 8000);
+    };
+
     recognition.onstart = () => {
       setVoiceError("");
       setLiveTranscript("");
       setListening(true);
+      armSilenceTimer();
     };
 
     recognition.onerror = (event) => {
+      clearSilenceTimer();
       const error = "error" in event ? String(event.error) : "microphone error";
       setVoiceError(friendlyVoiceError(error));
       setListening(false);
     };
 
     recognition.onend = () => {
+      clearSilenceTimer();
       setListening(false);
       setLiveTranscript("");
     };
@@ -1004,6 +1027,7 @@ export default function Home() {
       for (let index = event.results.length - 1; index >= 0; index -= 1) {
         const result = event.results[index];
         const transcript = result[0]?.transcript || "";
+        if (transcript.trim()) armSilenceTimer();
         if (result.isFinal) {
           finalText = `${transcript} ${finalText}`;
         } else {
@@ -1134,16 +1158,34 @@ export default function Home() {
 
       const decoder = new TextDecoder();
       let streamed = "";
+      let rendered = "";
+      const flushStream = () => {
+        if (rendered === streamed) return;
+        rendered = streamed;
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId ? { ...message, content: rendered } : message
+          )
+        );
+      };
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         streamed += decoder.decode(value, { stream: true });
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === assistantId ? { ...message, content: streamed } : message
-          )
-        );
+        // Batch updates to one browser paint instead of rerendering for every chunk.
+        if (streamFrameRef.current === null) {
+          streamFrameRef.current = requestAnimationFrame(() => {
+            streamFrameRef.current = null;
+            flushStream();
+          });
+        }
       }
+      streamed += decoder.decode();
+      if (streamFrameRef.current !== null) {
+        cancelAnimationFrame(streamFrameRef.current);
+        streamFrameRef.current = null;
+      }
+      flushStream();
 
       if (!streamed.trim()) {
         setMessages((current) =>
