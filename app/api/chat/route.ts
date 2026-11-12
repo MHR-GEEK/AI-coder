@@ -209,6 +209,14 @@ function apiChatUrl(baseUrl: string) {
   return baseUrl.endsWith("/api") ? `${baseUrl}/chat` : `${baseUrl}/api/chat`;
 }
 
+function isOllamaCloud(baseUrl: string) {
+  try {
+    return new URL(baseUrl).hostname === "ollama.com" || new URL(baseUrl).hostname.endsWith(".ollama.com");
+  } catch {
+    return false;
+  }
+}
+
 function openAiChatUrl(baseUrl: string) {
   if (baseUrl.endsWith("/v1")) return `${baseUrl}/chat/completions`;
   if (baseUrl.endsWith("/api")) return `${baseUrl.replace(/\/api$/, "")}/v1/chat/completions`;
@@ -305,7 +313,7 @@ function streamText(text: string, init?: ResponseInit) {
 }
 
 async function providerStream(config: ProviderConfig, messages: ChatMessage[], images: string[], model: string) {
-  if (config.mode === "ollama" && isLocalBaseUrl(config.baseUrl)) {
+  if (config.mode === "ollama" && !isOllamaCloud(config.baseUrl)) {
     return fetch(apiChatUrl(config.baseUrl), {
       method: "POST",
       headers: authHeaders(config),
