@@ -43,6 +43,8 @@ import {
   Sun,
   Trash2,
   Upload,
+  Volume2,
+  VolumeX,
   X
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -557,7 +559,9 @@ const ChatMessage = memo(function ChatMessage({
   onCopyMessage,
   onRegenerate,
   onDelete,
-  onEdit
+  onEdit,
+  onSpeak,
+  speaking
 }: {
   message: Message;
   copiedCode: string | null;
@@ -567,6 +571,8 @@ const ChatMessage = memo(function ChatMessage({
   onRegenerate: (message: Message) => void;
   onDelete: (id: string) => void;
   onEdit: (message: Message) => void;
+  onSpeak: (message: Message) => void;
+  speaking: boolean;
 }) {
   const parts = useMemo(() => splitMessage(message.content), [message.content]);
 
@@ -619,7 +625,15 @@ const ChatMessage = memo(function ChatMessage({
             {copiedMessage === message.id ? <Check size={14} /> : <Copy size={14} />}
             {copiedMessage === message.id ? "Copied" : "Copy"}
           </button>
-          {message.role === "assistant" && <button type="button" onClick={() => onRegenerate(message)}><RefreshCcw size={14} /> Regenerate</button>}
+          {message.role === "assistant" && (
+            <>
+              <button type="button" onClick={() => onSpeak(message)} aria-label={speaking ? "Stop reading aloud" : "Read response aloud"}>
+                {speaking ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                {speaking ? "Stop audio" : "Listen"}
+              </button>
+              <button type="button" onClick={() => onRegenerate(message)}><RefreshCcw size={14} /> Regenerate</button>
+            </>
+          )}
           {message.role === "user" && <button type="button" onClick={() => onEdit(message)}><Edit3 size={14} /> Edit</button>}
           <button type="button" onClick={() => onDelete(message.id)}><Trash2 size={14} /> Delete</button>
         </div>
@@ -645,12 +659,14 @@ export default function Home() {
   const [listening, setListening] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
   const [voiceError, setVoiceError] = useState("");
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const topUploadRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   const activeConversation = useMemo(() => {
     return conversations.find((conversation) => conversation.id === activeConversationId) || conversations[0];
@@ -944,12 +960,11 @@ export default function Home() {
       return;
     }
 
-    try {
-      const stream = await navigator.mediaDevices?.getUserMedia({ audio: true });
-      stream?.getTracks().forEach((track) => track.stop());
-    } catch (error) {
-      const name = error instanceof DOMException ? error.name.toLowerCase() : "";
-      setVoiceError(friendlyVoiceError(name.includes("denied") ? "permission-denied" : name));
+    // Do not await getUserMedia before start(): on mobile browsers that can
+    // consume the user-activation gesture and cause SpeechRecognition.start()
+    // to fail with NotAllowedError. The recognition API requests mic access itself.
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setVoiceError("This browser cannot access the microphone. Open HARYX in Chrome and allow microphone access for this site.");
       return;
     }
 
@@ -1002,6 +1017,37 @@ export default function Home() {
       setVoiceError("Voice input is already starting. Wait a moment and try again.");
       setListening(false);
     }
+  }
+
+  function speakMessage(message: Message) {
+    if (!("speechSynthesis" in window)) {
+      setVoiceError("Text-to-speech is not supported in this browser. Try Chrome or enable Android text-to-speech.");
+      return;
+    }
+    if (speakingMessageId === message.id) {
+      window.speechSynthesis.cancel();
+      utteranceRef.current = null;
+      setSpeakingMessageId(null);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(message.content);
+    utterance.lang = navigator.language || "en-IN";
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.onstart = () => setSpeakingMessageId(message.id);
+    utterance.onend = () => {
+      setSpeakingMessageId(null);
+      utteranceRef.current = null;
+    };
+    utterance.onerror = () => {
+      setSpeakingMessageId(null);
+      utteranceRef.current = null;
+      setVoiceError("Audio playback was interrupted. Check your device media volume and try Listen again.");
+    };
+    utteranceRef.current = utterance;
+    setVoiceError("");
+    window.speechSynthesis.speak(utterance);
   }
 
   const submitMessage = useCallback(async (event?: FormEvent, quickAction?: string, retryMessages?: Message[]) => {
@@ -1339,6 +1385,8 @@ export default function Home() {
               onRegenerate={regenerate}
               onDelete={deleteMessage}
               onEdit={editMessage}
+              onSpeak={speakMessage}
+              speaking={speakingMessageId === message.id}
             />
           ))}
 
@@ -1366,6 +1414,14 @@ export default function Home() {
             </div>
           )}
 
+          {(listening || speakingMessageId) && (
+            <div className={`voice-plasma active ${listening ? "listening" : "speaking"}`} role="status" aria-live="polite">
+              <div className="plasma-core"><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></div>
+              <span className="plasma-label">{listening ? "LISTENING" : "HARYX VOICE"}</span>
+              <span className="plasma-subtitle">{listening ? "Speak naturally" : "Reading response aloud"}</span>
+              {speakingMessageId && <button type="button" onClick={() => { window.speechSynthesis.cancel(); utteranceRef.current = null; setSpeakingMessageId(null); }} aria-label="Stop audio"><Square size={14} /></button>}
+            </div>
+          )}
           <div className="composer-box">
             <label className="tool-button" aria-label="Upload image">
               <ImagePlus size={19} />
