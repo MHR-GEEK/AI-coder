@@ -61,7 +61,7 @@ Return clean markdown with short sections, readable spacing, tables when useful,
 const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: string; mode: "ollama" | "openai"; keyNames: string[]; requiredKey?: string }> = {
   ollama: {
     baseUrl: "https://ollama.com",
-    model: "gpt-oss:120b",
+    model: "ttempvnn/Puwaer-Qwen3-Next-80B-A3B-Thinking-SFT-Uncensored-Q4-K-M",
     visionModel: "qwen3-vl:235b-instruct",
     mode: "ollama",
     keyNames: ["OLLAMA_API_KEY", "AI_API_KEY"],
