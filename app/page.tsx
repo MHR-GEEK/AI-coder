@@ -1056,10 +1056,21 @@ export default function Home() {
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({ error: "The AI service returned an error." }));
-        const diagnostic = typeof data?.details === "string" && data.details.trim()
-          ? `\\n\\nProvider details: ${data.details.slice(0, 700)}`
-          : "";
+        let detailMessage = "";
+        if (typeof data?.details === "string" && data.details.trim()) {
+          try {
+            const parsed = JSON.parse(data.details);
+            detailMessage = parsed?.error?.message || parsed?.message || data.details;
+          } catch {
+            detailMessage = data.details;
+          }
+        }
+        const isSafetyOutage = /content safety screening.*temporarily unavailable/i.test(detailMessage);
+        if (isSafetyOutage) {
+          throw new Error("NVIDIA's temporary content-safety service is unavailable. HARYX already retried the request automatically. Your key and model are configured; wait a minute and tap Regenerate.");
+        }
         const status = data?.status ? ` (HTTP ${data.status})` : "";
+        const diagnostic = detailMessage ? `\\n\\nProvider details: ${detailMessage.slice(0, 500)}` : "";
         throw new Error(`${data?.error || "The AI service returned an error."}${status}${diagnostic}`);
       }
 
@@ -1091,7 +1102,8 @@ export default function Home() {
       setBackendStatus("connected");
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      setBackendStatus("needs-setup");
+      const temporaryProviderOutage = error instanceof Error && /temporarily unavailable/i.test(error.message);
+      setBackendStatus(temporaryProviderOutage ? "connected" : "needs-setup");
       setMessages([
         ...nextMessages,
         {
