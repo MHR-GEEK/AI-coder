@@ -736,6 +736,13 @@ export default function Home() {
   }, [messages, loading]);
 
   useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!textareaRef.current) return;
     textareaRef.current.style.height = "0px";
     textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
