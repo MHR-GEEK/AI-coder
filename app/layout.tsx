@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "AI Coder by HARYX",
-  description: "A futuristic Ollama-powered programming AI for code, debugging, and image-based error solving.",
+  description: "A futuristic NVIDIA-powered programming AI for code, debugging, voice, and image-based error solving.",
   authors: [{ name: "HARYX" }]
 };
 
