@@ -2,40 +2,28 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-// Temporary smoke test for the configured NVIDIA inference endpoint.
-// Returns only the model reply and status; never returns credentials.
+// Temporary end-to-end test of the same streaming route used by the chat UI.
 export async function GET() {
-  const apiKey = process.env.AI_API_KEY;
-  const model = process.env.AI_MODEL || "minimaxai/minimax-m3.1-flash";
-  if (!apiKey) return NextResponse.json({ ok: false, error: "AI_API_KEY missing" }, { status: 500 });
   try {
-    const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+    const response = await fetch("https://aicoder-mhr.vercel.app/api/chat", {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: "Reply exactly: HARYX AI ONLINE" }],
-        max_tokens: 64,
-        temperature: 1,
-        top_p: 0.95,
-        stream: false
+        messages: [{ role: "user", content: "Reply exactly: HARYX CHAT ROUTE ONLINE" }]
       }),
-      signal: AbortSignal.timeout(50000)
+      signal: AbortSignal.timeout(55000)
     });
-    const raw = await response.text();
-    let data: any = {};
-    try { data = JSON.parse(raw); } catch {}
-    if (!response.ok) return NextResponse.json({
-      ok: false, status: response.status, model,
-      providerError: data?.error?.message || data?.error || raw.slice(0, 500)
-    }, { status: 502 });
+    const text = await response.text();
     return NextResponse.json({
-      ok: Boolean(data?.choices?.[0]?.message?.content),
+      ok: response.ok && Boolean(text.trim()),
       status: response.status,
-      model,
-      response: data?.choices?.[0]?.message?.content || ""
-    });
+      model: process.env.AI_MODEL || "not configured",
+      response: text.slice(0, 500)
+    }, { status: response.ok ? 200 : 502 });
   } catch (error) {
-    return NextResponse.json({ ok: false, model, error: error instanceof Error ? error.message : "Request failed" }, { status: 502 });
+    return NextResponse.json({
+      ok: false,
+      error: error instanceof Error ? error.message : "Chat route test failed"
+    }, { status: 502 });
   }
 }
