@@ -1056,7 +1056,11 @@ export default function Home() {
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({ error: "The AI service returned an error." }));
-        throw new Error(data?.error || "The AI service returned an error.");
+        const diagnostic = typeof data?.details === "string" && data.details.trim()
+          ? `\\n\\nProvider details: ${data.details.slice(0, 700)}`
+          : "";
+        const status = data?.status ? ` (HTTP ${data.status})` : "";
+        throw new Error(`${data?.error || "The AI service returned an error."}${status}${diagnostic}`);
       }
 
       const reader = response.body?.getReader();
