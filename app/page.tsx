@@ -1113,7 +1113,7 @@ export default function Home() {
           timestamp: Date.now(),
           content:
             error instanceof Error
-              ? `# Connection Issue\n\n${error.message}\n\n## Try Again\n\n- Check your Vercel environment variables.\n- Verify the Ollama API key is valid.\n- Retry the request.`
+              ? `# Connection Issue\n\n${error.message}\n\n## Try Again\n\n- Wait briefly for the AI provider to recover.\n- Tap Regenerate to retry your message.`
               : "# Connection Issue\n\nThe AI backend could not be reached."
         }
       ]);
