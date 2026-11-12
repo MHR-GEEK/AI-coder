@@ -46,8 +46,6 @@ type ProviderConfig = {
 };
 
 const encoder = new TextEncoder();
-const FALLBACK_OLLAMA_API_KEY = "636e1d145daa4dd38a62b0be2659e3d4.iIF70AWxlFMDl3cFGFk1vyRH";
-
 const SYSTEM_PROMPT = `You are HARYX AI Coder, a professional, friendly, fast, clear and technical programming assistant.
 Expertise: Programming, Next.js, React, TypeScript, Python, Node.js, AI, Machine Learning, UI Design, Cyber Security, APIs, Linux, Docker, Cloud, and Debugging.
 
@@ -64,7 +62,7 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
   ollama: {
     baseUrl: "https://ollama.com",
     model: "gpt-oss:120b",
-    visionModel: "minimax-m3",
+    visionModel: "qwen3-vl:235b-instruct",
     mode: "ollama",
     keyNames: ["OLLAMA_API_KEY", "AI_API_KEY"],
     requiredKey: "OLLAMA_API_KEY"
@@ -128,12 +126,11 @@ function readFirstEnv(names: string[]) {
     const value = process.env[name];
     if (value?.trim()) return value.trim();
   }
-  if (names.includes("OLLAMA_API_KEY")) return FALLBACK_OLLAMA_API_KEY;
   return undefined;
 }
 
 function isLocalBaseUrl(baseUrl: string) {
-  return baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1") || baseUrl.includes("::1");
+  return /^(https?:\/\/)?(localhost|127\.0\.0\.1|\[::1\]|::1)(:\d+)?(\/|$)/i.test(baseUrl);
 }
 
 function getConfig(payload?: ChatPayload): ProviderConfig {
@@ -209,9 +206,14 @@ function cleanBase64Images(payload: ChatPayload) {
 }
 
 function apiChatUrl(baseUrl: string) {
-  if (baseUrl.endsWith("/api")) return `${baseUrl}/chat`;
-  if (baseUrl.endsWith("/v1")) return `${baseUrl.replace(/\/v1$/, "")}/api/chat`;
-  return `${baseUrl}/api/chat`;
+  // Ollama Cloud is OpenAI-compatible. Use its /v1/chat/completions route,
+  // matching the Cloud API; local Ollama continues to use /api/chat.
+  if (isLocalBaseUrl(baseUrl)) {
+    return baseUrl.endsWith("/api") ? `${baseUrl}/chat` : `${baseUrl}/api/chat`;
+  }
+  if (baseUrl.endsWith("/v1")) return `${baseUrl}/chat/completions`;
+  if (baseUrl.endsWith("/api")) return `${baseUrl.replace(/\/api$/, "")}/v1/chat/completions`;
+  return `${baseUrl}/v1/chat/completions`;
 }
 
 function openAiChatUrl(baseUrl: string) {
@@ -310,8 +312,8 @@ function streamText(text: string, init?: ResponseInit) {
 }
 
 async function providerStream(config: ProviderConfig, messages: ChatMessage[], images: string[], model: string) {
-  if (config.mode === "ollama") {
-    return fetch(apiChatUrl(config.baseUrl), {
+  if (config.mode === "ollama" && isLocalBaseUrl(config.baseUrl)) {
+    return fetch(apiChatUrl(config.baseUrl),
       method: "POST",
       headers: authHeaders(config),
       body: JSON.stringify({
@@ -518,6 +520,7 @@ export async function POST(request: NextRequest) {
         error: message.includes("fetch failed")
           ? "Could not reach the AI provider. Check AI_PROVIDER, AI_BASE_URL, provider API key, and Vercel environment variables."
           : message,
+        details: message,
         code: "server-error"
       },
       { status: 502 }
