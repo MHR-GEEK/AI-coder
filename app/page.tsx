@@ -51,6 +51,7 @@ import { AnimatePresence, motion } from "framer-motion";
 
 type SpeechRecognitionEvent = Event & {
   results: SpeechRecognitionResultList;
+  resultIndex: number;
 };
 
 type SpeechRecognition = {
@@ -953,7 +954,7 @@ export default function Home() {
     setAttachments((current) => [...current, ...nextAttachments]);
   }, []);
 
-  async function toggleVoiceInput() {
+  function toggleVoiceInput() {
     if (listening) {
       recognitionRef.current?.stop();
       setListening(false);
@@ -962,27 +963,21 @@ export default function Home() {
 
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Recognition) {
-      setVoiceError("Voice input is not supported in this browser. Use Chrome or Edge for SpeechRecognition.");
+      setVoiceError("Voice typing is not supported in this browser. Open this site in Chrome and allow microphone access.");
       return;
     }
-
     if (!window.isSecureContext) {
-      setVoiceError(friendlyVoiceError());
+      setVoiceError("Voice typing requires a secure HTTPS connection.");
       return;
     }
 
-    // Do not await getUserMedia before start(): on mobile browsers that can
-    // consume the user-activation gesture and cause SpeechRecognition.start()
-    // to fail with NotAllowedError. The recognition API requests mic access itself.
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setVoiceError("This browser cannot access the microphone. Open HARYX in Chrome and allow microphone access for this site.");
-      return;
-    }
-
+    // SpeechRecognition requests microphone permission itself. Requiring
+    // getUserMedia here incorrectly blocks browsers that expose recognition
+    // without the separate mediaDevices API.
     const recognition = new Recognition();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = navigator.language || "en-US";
+    recognition.lang = navigator.language || "en-IN";
 
     const clearSilenceTimer = () => {
       if (silenceTimerRef.current) {
@@ -993,10 +988,10 @@ export default function Home() {
     const armSilenceTimer = () => {
       clearSilenceTimer();
       silenceTimerRef.current = setTimeout(() => {
-        recognition.stop();
+        try { recognition.stop(); } catch {}
         setListening(false);
         setLiveTranscript("");
-        setVoiceError("Microphone paused after 8 seconds of silence.");
+        setVoiceError("Voice typing paused after 8 seconds without speech.");
       }, 8000);
     };
 
@@ -1006,35 +1001,30 @@ export default function Home() {
       setListening(true);
       armSilenceTimer();
     };
-
     recognition.onerror = (event) => {
       clearSilenceTimer();
-      const error = "error" in event ? String(event.error) : "microphone error";
+      const error = "error" in event ? String(event.error) : "";
       setVoiceError(friendlyVoiceError(error));
       setListening(false);
     };
-
     recognition.onend = () => {
       clearSilenceTimer();
       setListening(false);
       setLiveTranscript("");
     };
-
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interim = "";
       let finalText = "";
-
-      for (let index = event.results.length - 1; index >= 0; index -= 1) {
+      // Only process results added/changed in this event. Re-reading the full
+      // result list appended earlier final transcripts more than once.
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
         const transcript = result[0]?.transcript || "";
-        if (transcript.trim()) armSilenceTimer();
-        if (result.isFinal) {
-          finalText = `${transcript} ${finalText}`;
-        } else {
-          interim = `${transcript} ${interim}`;
-        }
+        if (!transcript.trim()) continue;
+        armSilenceTimer();
+        if (result.isFinal) finalText += transcript + " ";
+        else interim += transcript + " ";
       }
-
       if (finalText.trim()) {
         setInput((current) => `${current}${current.trim() ? " " : ""}${finalText.trim()}`);
       }
@@ -1042,43 +1032,54 @@ export default function Home() {
     };
 
     recognitionRef.current = recognition;
+    setVoiceError("");
     try {
+      // Must run directly from the tap so mobile browsers retain user activation.
       recognition.start();
     } catch {
-      setVoiceError("Voice input is already starting. Wait a moment and try again.");
+      recognitionRef.current = null;
       setListening(false);
+      setVoiceError("Microphone is busy or already starting. Wait briefly, then tap the mic again.");
     }
   }
 
   function speakMessage(message: Message) {
-    if (!("speechSynthesis" in window)) {
-      setVoiceError("Text-to-speech is not supported in this browser. Try Chrome or enable Android text-to-speech.");
+    if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+      setVoiceError("Text-to-speech is unavailable in this browser. Check Android text-to-speech settings or use Chrome.");
       return;
     }
+    const synthesis = window.speechSynthesis;
     if (speakingMessageId === message.id) {
-      window.speechSynthesis.cancel();
+      synthesis.cancel();
       utteranceRef.current = null;
       setSpeakingMessageId(null);
       return;
     }
-    window.speechSynthesis.cancel();
+
+    synthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(message.content);
     utterance.lang = navigator.language || "en-IN";
     utterance.rate = 1;
     utterance.pitch = 1;
+    const voices = synthesis.getVoices();
+    const language = utterance.lang.toLowerCase().split("-")[0];
+    utterance.voice = voices.find((voice) => voice.lang.toLowerCase().startsWith(language)) || voices[0] || null;
     utterance.onstart = () => setSpeakingMessageId(message.id);
     utterance.onend = () => {
       setSpeakingMessageId(null);
       utteranceRef.current = null;
     };
-    utterance.onerror = () => {
+    utterance.onerror = (event) => {
       setSpeakingMessageId(null);
       utteranceRef.current = null;
-      setVoiceError("Audio playback was interrupted. Check your device media volume and try Listen again.");
+      if (event.error !== "canceled" && event.error !== "interrupted") {
+        setVoiceError("Speech playback failed. Check media volume and Android text-to-speech output.");
+      }
     };
     utteranceRef.current = utterance;
     setVoiceError("");
-    window.speechSynthesis.speak(utterance);
+    synthesis.resume();
+    synthesis.speak(utterance);
   }
 
   const submitMessage = useCallback(async (event?: FormEvent, quickAction?: string, retryMessages?: Message[]) => {
