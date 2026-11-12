@@ -313,7 +313,7 @@ function streamText(text: string, init?: ResponseInit) {
 
 async function providerStream(config: ProviderConfig, messages: ChatMessage[], images: string[], model: string) {
   if (config.mode === "ollama" && isLocalBaseUrl(config.baseUrl)) {
-    return fetch(apiChatUrl(config.baseUrl),
+    return fetch(apiChatUrl(config.baseUrl), {
       method: "POST",
       headers: authHeaders(config),
       body: JSON.stringify({
