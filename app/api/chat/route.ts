@@ -528,8 +528,54 @@ export async function POST(request: NextRequest) {
 
     const images = cleanBase64Images(payload);
     const messages = prepareMessages(payload, images);
-    const model = images.length ? config.visionModel : config.textModel;
-    const response = await providerStreamWithRetry(config, messages, images, model);
+    let model = images.length ? config.visionModel : config.textModel;
+    let response = await providerStreamWithRetry(config, messages, images, model);
+
+    // If the selected text model is unavailable or overloaded, fail over once
+    // to a known NVIDIA NIM coding model instead of leaving chat unusable.
+    if (!images.length && !response.ok && [429, 500, 502, 503, 504].includes(response.status)) {
+      const primaryStatus = response.status;
+      const primaryDetails = await readFailure(response);
+      const fallbackModel = process.env.AI_FALLBACK_MODEL || "qwen/qwen2.5-coder-32b-instruct";
+
+      if (fallbackModel !== model) {
+        console.warn("[HARYX AI] primary model failed; trying fallback", {
+          provider: config.provider,
+          primaryModel: model,
+          primaryStatus,
+          fallbackModel
+        });
+
+        const fallback = await providerStreamWithRetry(config, messages, [], fallbackModel);
+        if (fallback.ok) {
+          response = fallback;
+          model = fallbackModel;
+          console.info("[HARYX AI] fallback model connected", { provider: config.provider, model });
+        } else {
+          const fallbackDetails = await readFailure(fallback);
+          console.error("[HARYX AI] fallback model failed", {
+            provider: config.provider,
+            primaryModel: model,
+            primaryStatus,
+            fallbackModel,
+            fallbackStatus: fallback.status,
+            details: fallbackDetails
+          });
+          return NextResponse.json(
+            {
+              error: "The primary and fallback AI models are currently unavailable.",
+              code: "provider-fallback-error",
+              provider: config.provider,
+              primaryStatus,
+              fallbackModel,
+              fallbackStatus: fallback.status,
+              details: fallbackDetails || primaryDetails
+            },
+            { status: 502 }
+          );
+        }
+      }
+    }
 
     console.info("[HARYX AI] provider response", {
       provider: config.provider,
