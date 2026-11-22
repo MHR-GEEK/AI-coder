@@ -532,11 +532,11 @@ export async function POST(request: NextRequest) {
     let response = await providerStreamWithRetry(config, messages, images, model);
 
     // If the selected text model is unavailable or overloaded, fail over once
-    // to a known NVIDIA NIM coding model instead of leaving chat unusable.
+    // to a second Numes model instead of leaving chat unusable.
     if (!images.length && !response.ok && [429, 500, 502, 503, 504].includes(response.status)) {
       const primaryStatus = response.status;
       const primaryDetails = await readFailure(response);
-      const fallbackModel = process.env.AI_FALLBACK_MODEL || "qwen/qwen2.5-coder-32b-instruct";
+      const fallbackModel = process.env.AI_FALLBACK_MODEL || "dealignai/glm-5.3-flash-uncensored-fp8:free";
 
       if (fallbackModel !== model) {
         console.warn("[HARYX AI] primary model failed; trying fallback", {
