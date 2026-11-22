@@ -366,7 +366,7 @@ async function providerStream(config: ProviderConfig, messages: ChatMessage[], i
     return fetch(apiChatUrl(config.baseUrl), {
       method: "POST",
       headers: authHeaders(config),
-      signal: AbortSignal.timeout(22000),
+      signal: AbortSignal.timeout(55000),
       body: JSON.stringify({
         model,
         messages,
@@ -384,7 +384,7 @@ async function providerStream(config: ProviderConfig, messages: ChatMessage[], i
   return fetch(openAiChatUrl(config.baseUrl), {
     method: "POST",
     headers: authHeaders(config),
-    signal: AbortSignal.timeout(22000),
+    signal: AbortSignal.timeout(55000),
     body: JSON.stringify({
       model,
       messages: buildOpenAiMessages(messages, images),
@@ -397,7 +397,7 @@ async function providerStream(config: ProviderConfig, messages: ChatMessage[], i
 
 async function readWithIdleTimeout(
   reader: ReadableStreamDefaultReader<Uint8Array>,
-  timeoutMs = 25000
+  timeoutMs = 50000
 ) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
