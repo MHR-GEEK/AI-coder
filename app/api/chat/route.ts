@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-type Provider = "ollama" | "openai" | "openrouter" | "groq" | "together" | "openai-compatible";
+type Provider = "nvidia" | "gemini" | "ollama" | "openai" | "openrouter" | "groq" | "together" | "openai-compatible";
 
 type ChatMessage = {
   role: "user" | "assistant" | "system";
@@ -25,6 +25,8 @@ type ChatPayload = {
   files?: UploadedFile[];
   settings?: {
     provider?: string;
+    apiKey?: string;
+    baseUrl?: string;
     model?: string;
     temperature?: number;
     maxTokens?: number;
@@ -60,6 +62,22 @@ When users ask "Who built this?", "Who made this?", or "Developer?", answer that
 Return clean markdown with short sections, readable spacing, tables when useful, and fenced code blocks.`;
 
 const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: string; mode: "ollama" | "openai"; keyNames: string[]; requiredKey?: string }> = {
+  nvidia: {
+    baseUrl: "https://integrate.api.nvidia.com/v1",
+    model: "deepseek-ai/deepseek-v4-flash",
+    visionModel: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    mode: "openai",
+    keyNames: ["NVIDIA_API_KEY", "AI_API_KEY"],
+    requiredKey: "NVIDIA_API_KEY"
+  },
+  gemini: {
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    model: "gemini-2.5-flash",
+    visionModel: "gemini-2.5-flash",
+    mode: "openai",
+    keyNames: ["GEMINI_API_KEY", "AI_API_KEY"],
+    requiredKey: "GEMINI_API_KEY"
+  },
   ollama: {
     baseUrl: "https://ollama.com",
     model: "gpt-oss:120b",
@@ -111,8 +129,8 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
 };
 
 function normalizeProvider(value?: string | null): Provider {
-  const provider = (value || "ollama").toLowerCase().trim();
-  if (provider === "openai" || provider === "openrouter" || provider === "groq" || provider === "together" || provider === "openai-compatible" || provider === "ollama") {
+  const provider = (value || "nvidia").toLowerCase().trim();
+  if (provider === "nvidia" || provider === "gemini" || provider === "openai" || provider === "openrouter" || provider === "groq" || provider === "together" || provider === "openai-compatible" || provider === "ollama") {
     return provider;
   }
   return "ollama";
@@ -135,16 +153,17 @@ function isLocalBaseUrl(baseUrl: string) {
 }
 
 function getConfig(payload?: ChatPayload): ProviderConfig {
-  const provider = normalizeProvider(payload?.settings?.provider || process.env.AI_PROVIDER || process.env.OLLAMA_PROVIDER);
+  const provider = normalizeProvider(payload?.settings?.provider || process.env.AI_PROVIDER || process.env.OLLAMA_PROVIDER || "nvidia");
   const defaults = DEFAULTS[provider];
   const baseUrl = normalizeBaseUrl(
     process.env.AI_BASE_URL ||
       process.env[`${provider.toUpperCase().replace("-", "_")}_BASE_URL`] ||
       process.env.OPENAI_BASE_URL ||
       process.env.OLLAMA_BASE_URL ||
+      payload?.settings?.baseUrl ||
       defaults.baseUrl
   );
-  const apiKey = readFirstEnv(defaults.keyNames);
+  const apiKey = readFirstEnv(defaults.keyNames) || payload?.settings?.apiKey?.trim() || undefined;
   const textModel =
     payload?.settings?.model ||
     process.env.AI_MODEL ||
@@ -382,31 +401,40 @@ function proxyOpenAiStream(response: Response) {
     new ReadableStream({
       async start(controller) {
         let buffer = "";
+        const consumeLine = (rawLine: string) => {
+          const line = rawLine.trim();
+          if (!line.startsWith("data:")) return;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") return;
+          try {
+            const json = JSON.parse(payload);
+            const delta = json?.choices?.[0]?.delta;
+            const chunk = typeof delta?.content === "string" ? delta.content : "";
+            if (chunk) controller.enqueue(encoder.encode(chunk));
+          } catch {
+            // Ignore malformed keep-alive or provider metadata frames.
+          }
+        };
+
         try {
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
+            const lines = buffer.split(/\\r?\\n/);
             buffer = lines.pop() || "";
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed.startsWith("data:")) continue;
-              const payload = trimmed.replace(/^data:\s*/, "");
-              if (payload === "[DONE]") continue;
-              const json = JSON.parse(payload);
-              const chunk = json?.choices?.[0]?.delta?.content || "";
-              if (chunk) controller.enqueue(encoder.encode(chunk));
-            }
+            for (const line of lines) consumeLine(line);
           }
+          buffer += decoder.decode();
+          if (buffer.trim()) consumeLine(buffer);
         } catch {
-          controller.enqueue(encoder.encode("\n\nThe stream stopped unexpectedly. Please retry."));
+          controller.enqueue(encoder.encode("\\n\\nThe stream stopped unexpectedly. Please retry."));
         } finally {
           controller.close();
         }
       }
     }),
-    { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } }
+    { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" } }
   );
 }
 
