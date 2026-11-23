@@ -226,9 +226,9 @@ function cleanBase64Images(payload: ChatPayload) {
 }
 
 function apiChatUrl(baseUrl: string) {
-  if (baseUrl.endsWith("/api")) return `${baseUrl}/chat`;
-  if (baseUrl.endsWith("/v1")) return `${baseUrl.replace(/\/v1$/, "")}/api/chat`;
-  return `${baseUrl}/api/chat`;
+  const normalized = baseUrl.replace(/\\/v1$/, "").replace(/\\/$/, "");
+  if (normalized.endsWith("/api")) return `${normalized}/chat`;
+  return `${normalized}/api/chat`;
 }
 
 function openAiChatUrl(baseUrl: string) {
@@ -284,7 +284,7 @@ function buildOpenAiMessages(messages: ChatMessage[], images: string[]) {
       role: message.role,
       content: [
         { type: "text", text: message.content },
-        ...images.map((image) => ({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${image}` } }))
+        ...images.map((image) => ({ type: "image_url", image_url: { url: image } }))
       ]
     };
   });
