@@ -75,7 +75,7 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
     model: "gemini-2.5-flash",
     visionModel: "gemini-2.5-flash",
     mode: "openai",
-    keyNames: ["GEMINI_API_KEY", "AI_API_KEY"],
+    keyNames: ["GEMINI_API_KEY"],
     requiredKey: "GEMINI_API_KEY"
   },
   ollama: {
@@ -83,7 +83,7 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
     model: "gpt-oss:120b",
     visionModel: "qwen3-vl:235b-cloud",
     mode: "ollama",
-    keyNames: ["OLLAMA_API_KEY", "AI_API_KEY"],
+    keyNames: ["OLLAMA_API_KEY"],
     requiredKey: "OLLAMA_API_KEY"
   },
   openai: {
@@ -91,7 +91,7 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
     model: "gpt-4.1-mini",
     visionModel: "gpt-4.1",
     mode: "openai",
-    keyNames: ["OPENAI_API_KEY", "AI_API_KEY"],
+    keyNames: ["OPENAI_API_KEY"],
     requiredKey: "OPENAI_API_KEY"
   },
   openrouter: {
@@ -99,7 +99,7 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
     model: "openai/gpt-4.1-mini",
     visionModel: "openai/gpt-4.1",
     mode: "openai",
-    keyNames: ["OPENROUTER_API_KEY", "AI_API_KEY"],
+    keyNames: ["OPENROUTER_API_KEY"],
     requiredKey: "OPENROUTER_API_KEY"
   },
   groq: {
@@ -107,7 +107,7 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
     model: "llama-3.3-70b-versatile",
     visionModel: "meta-llama/llama-4-scout-17b-16e-instruct",
     mode: "openai",
-    keyNames: ["GROQ_API_KEY", "AI_API_KEY"],
+    keyNames: ["GROQ_API_KEY"],
     requiredKey: "GROQ_API_KEY"
   },
   together: {
@@ -115,7 +115,7 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
     model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
     visionModel: "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
     mode: "openai",
-    keyNames: ["TOGETHER_API_KEY", "AI_API_KEY"],
+    keyNames: ["TOGETHER_API_KEY"],
     requiredKey: "TOGETHER_API_KEY"
   },
   "openai-compatible": {
@@ -329,12 +329,18 @@ function streamText(text: string, init?: ResponseInit) {
 
 async function providerStream(config: ProviderConfig, messages: ChatMessage[], images: string[], model: string) {
   if (config.mode === "ollama") {
+    const ollamaMessages = messages.map((message) => ({
+      ...message,
+      ...(message.images?.length
+        ? { images: message.images.map((image) => image.replace(/^data:image\\/[a-zA-Z0-9.+-]+;base64,/i, "")) }
+        : {})
+    }));
     return fetch(apiChatUrl(config.baseUrl), {
       method: "POST",
       headers: authHeaders(config),
       body: JSON.stringify({
         model,
-        messages,
+        messages: ollamaMessages,
         stream: true,
         options: {
           temperature: config.temperature,
