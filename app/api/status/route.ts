@@ -40,7 +40,7 @@ export async function GET() {
   const provider = providerFromEnv();
   const defaults = PROVIDERS[provider];
   const prefix = provider.toUpperCase().replace(/-/g, "_");
-  const baseUrl = process.env.AI_BASE_URL || process.env[`${prefix}_BASE_URL`] || defaults.baseUrl;
+  const baseUrl = process.env[`${prefix}_BASE_URL`] || process.env.AI_BASE_URL || defaults.baseUrl;
   const model = process.env[`${prefix}_MODEL`] || process.env.AI_MODEL || defaults.model;
   const visionModel = process.env[`${prefix}_VISION_MODEL`] || (provider === "nvidia" ? process.env.AI_VISION_MODEL : undefined) || defaults.visionModel;
   const hasApiKey = Boolean(process.env[defaults.key] || (provider === "openai-compatible" && process.env.AI_API_KEY));
