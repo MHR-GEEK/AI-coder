@@ -81,7 +81,7 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
   ollama: {
     baseUrl: "https://ollama.com",
     model: "gpt-oss:120b",
-    visionModel: "minimax-m3",
+    visionModel: "qwen3-vl:235b-cloud",
     mode: "ollama",
     keyNames: ["OLLAMA_API_KEY", "AI_API_KEY"],
     requiredKey: "OLLAMA_API_KEY"
@@ -172,8 +172,8 @@ function getConfig(payload?: ChatPayload): ProviderConfig {
     process.env.OLLAMA_MODEL ||
     defaults.model;
   const visionModel =
-    process.env.AI_VISION_MODEL ||
     process.env[`${provider.toUpperCase().replace("-", "_")}_VISION_MODEL`] ||
+    (provider === "nvidia" ? process.env.AI_VISION_MODEL : undefined) ||
     process.env.OPENAI_VISION_MODEL ||
     process.env.OLLAMA_VISION_MODEL ||
     defaults.visionModel;
