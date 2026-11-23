@@ -32,7 +32,7 @@ function providerFromEnv(): Provider {
 }
 
 function isLocalOllama(baseUrl: string) {
-  return /localhost|127\\.0\\.0\\.1|::1/i.test(baseUrl);
+  return /localhost|127\.0\.0\.1|::1/i.test(baseUrl);
 }
 
 export async function GET() {
