@@ -24,7 +24,6 @@ import {
   Edit3,
   ExternalLink,
   Eye,
-  EyeOff,
   FileArchive,
   FileCode2,
   Github,
@@ -773,7 +772,6 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
   const [serverStatus, setServerStatus] = useState<{
     configured?: boolean;
     provider?: Provider;
@@ -789,20 +787,13 @@ export default function Home() {
       if (saved) {
         try {
           const parsed = JSON.parse(saved) as Partial<AISettings>;
-          const legacyNumesConfig =
-            parsed.provider === "openai-compatible" &&
-            typeof parsed.baseUrl === "string" &&
-            parsed.baseUrl.includes("numes.ai");
-          if (legacyNumesConfig) {
-            const migrated = {
-              ...DEFAULT_AI_SETTINGS,
-              temperature: parsed.temperature ?? DEFAULT_AI_SETTINGS.temperature,
-              maxTokens: parsed.maxTokens ?? DEFAULT_AI_SETTINGS.maxTokens
-            };
-            localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(migrated));
-            return migrated;
-          }
-          return { ...DEFAULT_AI_SETTINGS, ...parsed };
+          const migrated = {
+            ...DEFAULT_AI_SETTINGS,
+            temperature: parsed.temperature ?? DEFAULT_AI_SETTINGS.temperature,
+            maxTokens: parsed.maxTokens ?? DEFAULT_AI_SETTINGS.maxTokens
+          };
+          localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(migrated));
+          return migrated;
         } catch {}
       }
     }
@@ -824,11 +815,14 @@ export default function Home() {
   }
 
   function saveSettings(newSettings: AISettings) {
-    setAiSettings(newSettings);
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
-    if (newSettings.apiKey || (newSettings.provider === "ollama" && !serverStatus?.availableProviders?.length)) {
-      setBackendStatus("connected");
-    }
+    const normalized: AISettings = {
+      ...DEFAULT_AI_SETTINGS,
+      temperature: newSettings.temperature,
+      maxTokens: newSettings.maxTokens
+    };
+    setAiSettings(normalized);
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
+    setBackendStatus(serverStatus?.configured ? "connected" : "needs-setup");
     setIsSettingsOpen(false);
   }
 
@@ -839,13 +833,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [{ role: "user", content: "Reply with the word 'OK'." }],
-          settings: {
-            provider: tempSettings.provider,
-            apiKey: tempSettings.apiKey || undefined,
-            baseUrl: tempSettings.baseUrl || undefined,
-            model: tempSettings.model || undefined
-          }
+          messages: [{ role: "user", content: "Reply with the word 'OK'." }]
         })
       });
 
@@ -942,16 +930,16 @@ export default function Home() {
         if (data.configured) {
           setBackendStatus("connected");
           setAiSettings((prev) => {
-            if (!prev.apiKey && data.provider && data.provider in PROVIDER_INFO) {
-              const updated = {
-                ...prev,
-                provider: data.provider,
-                model: data.currentModel || prev.model
-              };
-              setTempSettings(updated);
-              return updated;
-            }
-            return prev;
+            const updated = {
+              ...DEFAULT_AI_SETTINGS,
+              model: data.currentModel || DEFAULT_AI_SETTINGS.model,
+              baseUrl: data.baseUrl || DEFAULT_AI_SETTINGS.baseUrl,
+              temperature: prev.temperature,
+              maxTokens: prev.maxTokens
+            };
+            setTempSettings(updated);
+            localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(updated));
+            return updated;
           });
         } else {
           const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
@@ -1746,83 +1734,18 @@ export default function Home() {
 
             <div className="settings-section">
               <div className="settings-field">
-                <label>
-                  <span>AI Provider</span>
-                  {PROVIDER_INFO[tempSettings.provider]?.isFreeTier && (
-                    <small style={{ color: "#4ade80", fontWeight: 600 }}>Free tier available</small>
-                  )}
-                </label>
-                <select
-                  className="settings-select"
-                  value={tempSettings.provider}
-                  onChange={(e) => {
-                    const newProvider = e.target.value as Provider;
-                    setTempSettings({
-                      ...tempSettings,
-                      provider: newProvider,
-                      model: PROVIDER_INFO[newProvider].defaultModel,
-                      baseUrl: PROVIDER_INFO[newProvider].defaultBaseUrl
-                    });
-                  }}
-                >
-                  <option value="nvidia">NVIDIA NIM (🟢 Recommended - Default)</option>
-                  <option value="groq">Groq (⚡ Ultra Fast)</option>
-                  <option value="gemini">Google Gemini (🌟 Fast Multimodal & Free)</option>
-                  <option value="openrouter">OpenRouter (🌐 Free & Commercial models)</option>
-                  <option value="openai">OpenAI (🤖 GPT-4o-mini / GPT-4o)</option>
-                  <option value="together">Together AI (🚀 Open Source models)</option>
-                  <option value="ollama">Ollama (💻 Local or Tunnel)</option>
-                  <option value="openai-compatible">Custom (OpenAI-compatible endpoint)</option>
-                </select>
+                <label><span>AI Provider</span><small>Managed securely on the server</small></label>
+                <div className="settings-info-card">
+                  <strong><Sparkles size={14} /> NVIDIA NIM</strong>
+                  <span>Connected through the secure Vercel environment. Your API key is never stored in this browser.</span>
+                </div>
               </div>
 
-              {tempSettings.provider !== "ollama" && (
-                <div className="settings-field">
-                  <label>
-                    <span>API Key</span>
-                    {PROVIDER_INFO[tempSettings.provider]?.getKeyUrl && (
-                      <a
-                        href={PROVIDER_INFO[tempSettings.provider].getKeyUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="settings-help-link"
-                      >
-                        {PROVIDER_INFO[tempSettings.provider].getKeyLabel} <ExternalLink size={12} />
-                      </a>
-                    )}
-                  </label>
-                  <div className="settings-key-wrapper">
-                    <input
-                      type={showApiKey ? "text" : "password"}
-                      className="settings-input"
-                      placeholder={PROVIDER_INFO[tempSettings.provider]?.keyPlaceholder}
-                      value={tempSettings.apiKey}
-                      onChange={(e) => setTempSettings({ ...tempSettings, apiKey: e.target.value })}
-                    />
-                    <button
-                      type="button"
-                      className="settings-eye-btn"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      aria-label={showApiKey ? "Hide key" : "Show key"}
-                    >
-                      {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-                </div>
-              )}
+
 
               <div className="settings-field">
-                <label>
-                  <span>Model</span>
-                  <small>Default: {PROVIDER_INFO[tempSettings.provider]?.defaultModel}</small>
-                </label>
-                <input
-                  type="text"
-                  className="settings-input"
-                  placeholder={PROVIDER_INFO[tempSettings.provider]?.defaultModel}
-                  value={tempSettings.model}
-                  onChange={(e) => setTempSettings({ ...tempSettings, model: e.target.value })}
-                />
+                <label><span>Active model</span><small>Managed and validated by the server</small></label>
+                <div className="settings-readonly-value">{serverStatus?.currentModel || DEFAULT_AI_SETTINGS.model}</div>
               </div>
 
               {(tempSettings.provider === "ollama" || tempSettings.provider === "openai-compatible") && (
@@ -1842,9 +1765,9 @@ export default function Home() {
               )}
 
               <div className="settings-info-card">
-                <strong><Sparkles size={14} /> Vercel Deployment Tip</strong>
+                <strong><Sparkles size={14} /> Secure server configuration</strong>
                 <span>
-                  To configure this globally for all users without entering keys in the browser, add <code>GROQ_API_KEY</code> or <code>GEMINI_API_KEY</code> in your <strong>Vercel Project Settings &gt; Environment Variables</strong> and redeploy!
+                  NVIDIA credentials and model routing are managed in Vercel. No API key or model override is needed in this browser.
                 </span>
               </div>
 
