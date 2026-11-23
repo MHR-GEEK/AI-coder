@@ -233,9 +233,9 @@ function apiChatUrl(baseUrl: string) {
 }
 
 function openAiChatUrl(baseUrl: string) {
-  if (baseUrl.endsWith("/v1")) return `${baseUrl}/chat/completions`;
-  if (baseUrl.endsWith("/api")) return `${baseUrl.replace(/\/api$/, "")}/v1/chat/completions`;
-  return `${baseUrl}/v1/chat/completions`;
+  if (baseUrl.endsWith("/v1") || baseUrl.endsWith("/openai")) return baseUrl + "/chat/completions";
+  if (baseUrl.endsWith("/api")) return baseUrl.replace(/\/api$/, "") + "/v1/chat/completions";
+  return baseUrl + "/v1/chat/completions";
 }
 
 function authHeaders(config: ProviderConfig) {
