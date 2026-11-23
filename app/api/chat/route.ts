@@ -226,9 +226,9 @@ function cleanBase64Images(payload: ChatPayload) {
 }
 
 function apiChatUrl(baseUrl: string) {
-  const normalized = baseUrl.replace(/\\/v1$/, "").replace(/\\/$/, "");
-  if (normalized.endsWith("/api")) return `${normalized}/chat`;
-  return `${normalized}/api/chat`;
+  const normalized = baseUrl.replace(/\/v1$/, "").replace(/\/$/, "");
+  if (normalized.endsWith("/api")) return normalized + "/chat";
+  return normalized + "/api/chat";
 }
 
 function openAiChatUrl(baseUrl: string) {
@@ -421,14 +421,14 @@ function proxyOpenAiStream(response: Response) {
             const { value, done } = await reader.read();
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split(/\\r?\\n/);
+            const lines = buffer.split(/\r?\n/);
             buffer = lines.pop() || "";
             for (const line of lines) consumeLine(line);
           }
           buffer += decoder.decode();
           if (buffer.trim()) consumeLine(buffer);
         } catch {
-          controller.enqueue(encoder.encode("\\n\\nThe stream stopped unexpectedly. Please retry."));
+          controller.enqueue(encoder.encode("\n\nThe stream stopped unexpectedly. Please retry."));
         } finally {
           controller.close();
         }
