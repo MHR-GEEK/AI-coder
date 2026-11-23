@@ -13,18 +13,26 @@ import {
   useState
 } from "react";
 import {
+  AlertCircle,
   Bot,
   Camera,
   Check,
+  CheckCircle2,
   Copy,
+  Cpu,
   Download,
   Edit3,
+  ExternalLink,
+  Eye,
+  EyeOff,
   FileArchive,
   FileCode2,
   Github,
   ImagePlus,
   Instagram,
+  Key,
   Loader2,
+  Menu,
   MessageSquare,
   Mic,
   Moon,
@@ -37,6 +45,7 @@ import {
   RefreshCcw,
   Search,
   Send,
+  Settings,
   Sparkles,
   Square,
   Star,
@@ -126,6 +135,112 @@ const STORAGE_KEY = "haryx-ai-coder-conversations";
 const DB_NAME = "haryx-ai-coder-db";
 const DB_VERSION = 1;
 const STORE_NAME = "conversations";
+const SETTINGS_STORAGE_KEY = "haryx-ai-coder-settings";
+
+type Provider = "groq" | "gemini" | "openrouter" | "openai" | "together" | "ollama" | "openai-compatible";
+
+type AISettings = {
+  provider: Provider;
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+  temperature: number;
+  maxTokens: number;
+};
+
+const PROVIDER_INFO: Record<
+  Provider,
+  {
+    name: string;
+    badge: string;
+    defaultModel: string;
+    defaultBaseUrl: string;
+    keyPlaceholder: string;
+    getKeyUrl: string;
+    getKeyLabel: string;
+    isFreeTier: boolean;
+  }
+> = {
+  groq: {
+    name: "Groq",
+    badge: "⚡ Groq",
+    defaultModel: "llama-3.3-70b-versatile",
+    defaultBaseUrl: "https://api.groq.com/openai/v1",
+    keyPlaceholder: "gsk_...",
+    getKeyUrl: "https://console.groq.com/keys",
+    getKeyLabel: "Get free Groq API key",
+    isFreeTier: true
+  },
+  gemini: {
+    name: "Google Gemini",
+    badge: "🌟 Gemini",
+    defaultModel: "gemini-2.0-flash",
+    defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    keyPlaceholder: "AIzaSy...",
+    getKeyUrl: "https://aistudio.google.com/app/apikey",
+    getKeyLabel: "Get free Gemini API key",
+    isFreeTier: true
+  },
+  openrouter: {
+    name: "OpenRouter",
+    badge: "🌐 OpenRouter",
+    defaultModel: "meta-llama/llama-3.3-70b-instruct:free",
+    defaultBaseUrl: "https://openrouter.ai/api/v1",
+    keyPlaceholder: "sk-or-...",
+    getKeyUrl: "https://openrouter.ai/keys",
+    getKeyLabel: "Get OpenRouter key",
+    isFreeTier: true
+  },
+  openai: {
+    name: "OpenAI",
+    badge: "🤖 OpenAI",
+    defaultModel: "gpt-4o-mini",
+    defaultBaseUrl: "https://api.openai.com/v1",
+    keyPlaceholder: "sk-...",
+    getKeyUrl: "https://platform.openai.com/api-keys",
+    getKeyLabel: "Get OpenAI key",
+    isFreeTier: false
+  },
+  together: {
+    name: "Together AI",
+    badge: "🚀 Together",
+    defaultModel: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    defaultBaseUrl: "https://api.together.xyz/v1",
+    keyPlaceholder: "...",
+    getKeyUrl: "https://api.together.xyz/settings/api-keys",
+    getKeyLabel: "Get Together AI key",
+    isFreeTier: false
+  },
+  ollama: {
+    name: "Ollama (Local/Tunnel)",
+    badge: "💻 Ollama",
+    defaultModel: "llama3.1",
+    defaultBaseUrl: "http://127.0.0.1:11434",
+    keyPlaceholder: "Optional for local",
+    getKeyUrl: "https://ollama.com",
+    getKeyLabel: "Ollama documentation",
+    isFreeTier: true
+  },
+  "openai-compatible": {
+    name: "Custom OpenAI-Compatible",
+    badge: "⚙️ Custom",
+    defaultModel: "gpt-4o-mini",
+    defaultBaseUrl: "https://api.openai.com/v1",
+    keyPlaceholder: "API key...",
+    getKeyUrl: "",
+    getKeyLabel: "",
+    isFreeTier: false
+  }
+};
+
+const DEFAULT_AI_SETTINGS: AISettings = {
+  provider: "groq",
+  apiKey: "",
+  model: "llama-3.3-70b-versatile",
+  baseUrl: "https://api.groq.com/openai/v1",
+  temperature: 0.35,
+  maxTokens: 4096
+};
 const DEVELOPER_REPLY =
   "HARYX AI Coder was built by HARYX, Founder & Developer of HARYX AI Coder.\n\nGitHub: https://github.com/MHR-GEEK\nInstagram: https://www.instagram.com/md_haris_raza_/";
 
@@ -646,11 +761,91 @@ export default function Home() {
   const [liveTranscript, setLiveTranscript] = useState("");
   const [voiceError, setVoiceError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [serverStatus, setServerStatus] = useState<{
+    configured?: boolean;
+    provider?: Provider;
+    currentModel?: string;
+    baseUrl?: string;
+    availableProviders?: string[];
+  } | null>(null);
+  const [testResult, setTestResult] = useState<{ status: "idle" | "testing" | "success" | "error"; message?: string }>({ status: "idle" });
+
+  const [aiSettings, setAiSettings] = useState<AISettings>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (saved) {
+        try {
+          return { ...DEFAULT_AI_SETTINGS, ...JSON.parse(saved) };
+        } catch {}
+      }
+    }
+    return DEFAULT_AI_SETTINGS;
+  });
+
+  const [tempSettings, setTempSettings] = useState<AISettings>(aiSettings);
+
   const chatRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const topUploadRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+
+  function openSettingsModal() {
+    setTempSettings(aiSettings);
+    setTestResult({ status: "idle" });
+    setIsSettingsOpen(true);
+  }
+
+  function saveSettings(newSettings: AISettings) {
+    setAiSettings(newSettings);
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
+    if (newSettings.apiKey || (newSettings.provider === "ollama" && !serverStatus?.availableProviders?.length)) {
+      setBackendStatus("connected");
+    }
+    setIsSettingsOpen(false);
+  }
+
+  async function testSettingsConnection() {
+    setTestResult({ status: "testing" });
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [{ role: "user", content: "Reply with the word 'OK'." }],
+          settings: {
+            provider: tempSettings.provider,
+            apiKey: tempSettings.apiKey || undefined,
+            baseUrl: tempSettings.baseUrl || undefined,
+            model: tempSettings.model || undefined
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ error: "Connection test failed." }));
+        setTestResult({
+          status: "error",
+          message: data.error || data.details || `Error ${response.status}`
+        });
+        return;
+      }
+
+      setTestResult({
+        status: "success",
+        message: "Connected! AI provider responded successfully."
+      });
+      setBackendStatus("connected");
+    } catch (err) {
+      setTestResult({
+        status: "error",
+        message: err instanceof Error ? err.message : "Failed to connect to API"
+      });
+    }
+  }
 
   const activeConversation = useMemo(() => {
     return conversations.find((conversation) => conversation.id === activeConversationId) || conversations[0];
@@ -711,9 +906,47 @@ export default function Home() {
   useEffect(() => {
     if (conversations.length) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
-      writeConversationsToDb(conversations).catch(() => setBackendStatus("needs-setup"));
+      writeConversationsToDb(conversations).catch(() => {});
     }
   }, [conversations]);
+
+  useEffect(() => {
+    fetch("/api/status")
+      .then((res) => res.json())
+      .then((data) => {
+        setServerStatus(data);
+        if (data.configured) {
+          setBackendStatus("connected");
+          setAiSettings((prev) => {
+            if (!prev.apiKey && data.provider && data.provider in PROVIDER_INFO) {
+              const updated = {
+                ...prev,
+                provider: data.provider,
+                model: data.currentModel || prev.model
+              };
+              setTempSettings(updated);
+              return updated;
+            }
+            return prev;
+          });
+        } else {
+          const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (parsed.apiKey || parsed.provider === "ollama") {
+                setBackendStatus("connected");
+                return;
+              }
+            } catch {}
+          }
+          setBackendStatus("needs-setup");
+        }
+      })
+      .catch(() => {
+        setBackendStatus("needs-setup");
+      });
+  }, []);
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
@@ -735,7 +968,7 @@ export default function Home() {
 
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  });
+  }, [listening]);
 
   const visibleMessages = useMemo(() => {
     if (!search.trim()) return messages;
@@ -1050,13 +1283,21 @@ export default function Home() {
             type: item.type,
             size: item.size,
             content: item.content
-          }))
+          })),
+          settings: {
+            provider: aiSettings.provider,
+            apiKey: aiSettings.apiKey || undefined,
+            baseUrl: aiSettings.baseUrl || undefined,
+            model: aiSettings.model || undefined,
+            temperature: aiSettings.temperature,
+            maxTokens: aiSettings.maxTokens
+          }
         })
       });
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({ error: "The AI service returned an error." }));
-        throw new Error(data?.error || "The AI service returned an error.");
+        throw new Error(data?.error || data?.details || "The AI service returned an error.");
       }
 
       const reader = response.body?.getReader();
@@ -1066,16 +1307,29 @@ export default function Home() {
 
       const decoder = new TextDecoder();
       let streamed = "";
+      let lastRender = Date.now();
+
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         streamed += decoder.decode(value, { stream: true });
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === assistantId ? { ...message, content: streamed } : message
-          )
-        );
+
+        const now = Date.now();
+        if (now - lastRender > 45) {
+          lastRender = now;
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === assistantId ? { ...message, content: streamed } : message
+            )
+          );
+        }
       }
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantId ? { ...message, content: streamed } : message
+        )
+      );
 
       if (!streamed.trim()) {
         setMessages((current) =>
@@ -1097,15 +1351,15 @@ export default function Home() {
           timestamp: Date.now(),
           content:
             error instanceof Error
-              ? `# Connection Issue\n\n${error.message}\n\n## Try Again\n\n- Check your Vercel environment variables.\n- Verify the Ollama API key is valid.\n- Retry the request.`
-              : "# Connection Issue\n\nThe AI backend could not be reached."
+              ? `# Connection Issue\n\n${error.message}\n\n### How to Fix on Vercel:\n\n1. **Click the Settings (⚙️) icon** in the top header.\n2. Choose **Groq** (⚡ recommended) or **Google Gemini** (both have fast free tiers).\n3. Paste your API key and click **Save Settings**.\n\n*To enable it for all visitors, set \`GROQ_API_KEY\` or \`GEMINI_API_KEY\` in your Vercel Project Settings > Environment Variables.*`
+              : "# Connection Issue\n\nThe AI backend could not be reached. Please check your AI Settings."
         }
       ]);
     } finally {
       setLoading(false);
       abortRef.current = null;
     }
-  }, [activeConversationId, attachments, input, loading, messages, setMessages]);
+  }, [activeConversationId, aiSettings, attachments, input, loading, messages, setMessages]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -1200,11 +1454,35 @@ export default function Home() {
           </span>
         </a>
         <div className="header-tools">
+          <button
+            type="button"
+            className="mobile-menu-btn"
+            onClick={() => setSidebarOpen((prev) => !prev)}
+            aria-label="Toggle navigation"
+            title="Menu"
+          >
+            <Menu size={18} />
+          </button>
           <label className="search-box">
             <Search size={16} />
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search chat" />
           </label>
-          <span className={`status-badge ${backendStatus === "connected" ? "online" : backendStatus === "needs-setup" ? "attention" : ""}`}><i />Ollama {backendStatus === "connected" ? "Online" : "Ready"}</span>
+          <span
+            className={`status-badge ${backendStatus === "connected" ? "online" : backendStatus === "needs-setup" ? "attention" : ""}`}
+            onClick={openSettingsModal}
+            title="Click to configure AI Provider & Model"
+          >
+            <i />
+            {PROVIDER_INFO[aiSettings.provider]?.badge || "AI"} {backendStatus === "connected" ? "Online" : "Configure"}
+          </span>
+          <button
+            type="button"
+            onClick={openSettingsModal}
+            aria-label="AI Settings"
+            title="AI Provider Settings"
+          >
+            <Settings size={18} />
+          </button>
           <button type="button" onClick={exportMarkdown} aria-label="Download chat"><Download size={18} /></button>
           <button type="button" onClick={exportText} aria-label="Export TXT">TXT</button>
           <button type="button" onClick={copyChat} aria-label="Copy chat"><Copy size={18} /></button>
@@ -1221,9 +1499,32 @@ export default function Home() {
       </header>
 
       <section className="chat-shell">
-        <aside className="conversation-sidebar" aria-label="Conversation history">
+        <div
+          className={`sidebar-backdrop ${sidebarOpen ? "open" : ""}`}
+          onClick={() => setSidebarOpen(false)}
+        />
+        <aside className={`conversation-sidebar ${sidebarOpen ? "open" : ""}`} aria-label="Conversation history">
+          <div className="sidebar-mobile-header">
+            <strong>Chats & Projects</strong>
+            <button
+              type="button"
+              className="sidebar-close-btn"
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Close menu"
+            >
+              <X size={16} />
+            </button>
+          </div>
           <div className="sidebar-top">
-            <button type="button" onClick={createNewChat}><Plus size={16} /> New chat</button>
+            <button
+              type="button"
+              onClick={() => {
+                createNewChat();
+                setSidebarOpen(false);
+              }}
+            >
+              <Plus size={16} /> New chat
+            </button>
             <label className="sidebar-search">
               <Search size={15} />
               <input value={conversationSearch} onChange={(event) => setConversationSearch(event.target.value)} placeholder="Search chats" />
@@ -1242,7 +1543,13 @@ export default function Home() {
             <div className="project-list">
               {projects.map((project) => (
                 <motion.article layout key={project.name} className={`project-item ${project.name === currentProject ? "active" : ""}`} whileHover={{ y: -1 }}>
-                  <button type="button" onClick={() => switchProject(project.name)}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      switchProject(project.name);
+                      setSidebarOpen(false);
+                    }}
+                  >
                     <strong>{project.name}</strong>
                     <small>{project.description}</small>
                     <small>{project.messageCount} messages - {project.fileCount} files</small>
@@ -1268,7 +1575,14 @@ export default function Home() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.98 }}
                 >
-                  <button type="button" className="conversation-main" onClick={() => setActiveConversationId(conversation.id)}>
+                  <button
+                    type="button"
+                    className="conversation-main"
+                    onClick={() => {
+                      setActiveConversationId(conversation.id);
+                      setSidebarOpen(false);
+                    }}
+                  >
                     <MessageSquare size={15} />
                     <span>
                       <strong>{conversation.title}</strong>
@@ -1387,6 +1701,160 @@ export default function Home() {
           <div className="composer-hint"><Camera size={14} /> Enter sends - Shift+Enter adds a new line - Ctrl+M voice - Paste or drop screenshots anywhere</div>
         </form>
       </section>
+
+      {isSettingsOpen && (
+        <div className="settings-modal-overlay" onClick={() => setIsSettingsOpen(false)}>
+          <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="settings-header">
+              <div>
+                <h2><Settings size={18} /> AI Provider Settings</h2>
+                <p>Configure your model and API key. Stored locally in your browser.</p>
+              </div>
+              <button
+                type="button"
+                className="settings-close-btn"
+                onClick={() => setIsSettingsOpen(false)}
+                aria-label="Close settings"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="settings-section">
+              <div className="settings-field">
+                <label>
+                  <span>AI Provider</span>
+                  {PROVIDER_INFO[tempSettings.provider]?.isFreeTier && (
+                    <small style={{ color: "#4ade80", fontWeight: 600 }}>Free tier available</small>
+                  )}
+                </label>
+                <select
+                  className="settings-select"
+                  value={tempSettings.provider}
+                  onChange={(e) => {
+                    const newProvider = e.target.value as Provider;
+                    setTempSettings({
+                      ...tempSettings,
+                      provider: newProvider,
+                      model: PROVIDER_INFO[newProvider].defaultModel,
+                      baseUrl: PROVIDER_INFO[newProvider].defaultBaseUrl
+                    });
+                  }}
+                >
+                  <option value="groq">Groq (⚡ Recommended - Ultra Fast & Free)</option>
+                  <option value="gemini">Google Gemini (🌟 Fast Multimodal & Free)</option>
+                  <option value="openrouter">OpenRouter (🌐 Free & Commercial models)</option>
+                  <option value="openai">OpenAI (🤖 GPT-4o-mini / GPT-4o)</option>
+                  <option value="together">Together AI (🚀 Open Source models)</option>
+                  <option value="ollama">Ollama (💻 Local or Tunnel)</option>
+                  <option value="openai-compatible">Custom (OpenAI-compatible endpoint)</option>
+                </select>
+              </div>
+
+              {tempSettings.provider !== "ollama" && (
+                <div className="settings-field">
+                  <label>
+                    <span>API Key</span>
+                    {PROVIDER_INFO[tempSettings.provider]?.getKeyUrl && (
+                      <a
+                        href={PROVIDER_INFO[tempSettings.provider].getKeyUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="settings-help-link"
+                      >
+                        {PROVIDER_INFO[tempSettings.provider].getKeyLabel} <ExternalLink size={12} />
+                      </a>
+                    )}
+                  </label>
+                  <div className="settings-key-wrapper">
+                    <input
+                      type={showApiKey ? "text" : "password"}
+                      className="settings-input"
+                      placeholder={PROVIDER_INFO[tempSettings.provider]?.keyPlaceholder}
+                      value={tempSettings.apiKey}
+                      onChange={(e) => setTempSettings({ ...tempSettings, apiKey: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      className="settings-eye-btn"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      aria-label={showApiKey ? "Hide key" : "Show key"}
+                    >
+                      {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="settings-field">
+                <label>
+                  <span>Model</span>
+                  <small>Default: {PROVIDER_INFO[tempSettings.provider]?.defaultModel}</small>
+                </label>
+                <input
+                  type="text"
+                  className="settings-input"
+                  placeholder={PROVIDER_INFO[tempSettings.provider]?.defaultModel}
+                  value={tempSettings.model}
+                  onChange={(e) => setTempSettings({ ...tempSettings, model: e.target.value })}
+                />
+              </div>
+
+              {(tempSettings.provider === "ollama" || tempSettings.provider === "openai-compatible") && (
+                <div className="settings-field">
+                  <label>
+                    <span>Base API URL</span>
+                    <small>Default: {PROVIDER_INFO[tempSettings.provider]?.defaultBaseUrl}</small>
+                  </label>
+                  <input
+                    type="text"
+                    className="settings-input"
+                    placeholder={PROVIDER_INFO[tempSettings.provider]?.defaultBaseUrl}
+                    value={tempSettings.baseUrl}
+                    onChange={(e) => setTempSettings({ ...tempSettings, baseUrl: e.target.value })}
+                  />
+                </div>
+              )}
+
+              <div className="settings-info-card">
+                <strong><Sparkles size={14} /> Vercel Deployment Tip</strong>
+                <span>
+                  To configure this globally for all users without entering keys in the browser, add <code>GROQ_API_KEY</code> or <code>GEMINI_API_KEY</code> in your <strong>Vercel Project Settings &gt; Environment Variables</strong> and redeploy!
+                </span>
+              </div>
+
+              {testResult.status !== "idle" && (
+                <div className={`test-result-badge ${testResult.status}`}>
+                  {testResult.status === "testing" && <Loader2 size={14} className="spin" />}
+                  {testResult.status === "success" && <CheckCircle2 size={14} />}
+                  {testResult.status === "error" && <AlertCircle size={14} />}
+                  <span>{testResult.status === "testing" ? "Testing connection..." : testResult.message}</span>
+                </div>
+              )}
+
+              <div className="settings-actions">
+                <button
+                  type="button"
+                  className="settings-btn-secondary"
+                  onClick={testSettingsConnection}
+                  disabled={testResult.status === "testing"}
+                >
+                  <Cpu size={15} /> Test Connection
+                </button>
+                <button
+                  type="button"
+                  className="settings-btn-primary"
+                  onClick={() => {
+                    saveSettings(tempSettings);
+                  }}
+                >
+                  Save Settings
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
