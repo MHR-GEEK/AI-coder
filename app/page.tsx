@@ -24,7 +24,6 @@ import {
   Edit3,
   ExternalLink,
   Eye,
-  EyeOff,
   FileArchive,
   FileCode2,
   Github,
@@ -773,7 +772,6 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
   const [serverStatus, setServerStatus] = useState<{
     configured?: boolean;
     provider?: Provider;
