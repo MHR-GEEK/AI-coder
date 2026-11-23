@@ -332,7 +332,7 @@ async function providerStream(config: ProviderConfig, messages: ChatMessage[], i
     const ollamaMessages = messages.map((message) => ({
       ...message,
       ...(message.images?.length
-        ? { images: message.images.map((image) => image.replace(/^data:image\\/[a-zA-Z0-9.+-]+;base64,/i, "")) }
+        ? { images: message.images.map((image) => image.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/i, "")) }
         : {})
     }));
     return fetch(apiChatUrl(config.baseUrl), {
