@@ -1676,3 +1676,53 @@ textarea {
     overflow: visible;
   }
 }
+
+
+/* Compact, readable server-managed AI settings */
+.settings-readonly-value {
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--glass);
+  color: var(--text);
+  padding: 10px 14px;
+  font: 500 0.84rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@media (max-width: 600px) {
+  .settings-modal-overlay {
+    align-items: flex-end;
+    padding: 8px;
+  }
+  .settings-modal {
+    width: 100%;
+    max-height: min(88vh, 88dvh);
+    border-radius: 20px;
+    padding: 18px;
+    gap: 16px;
+  }
+  .settings-header {
+    align-items: flex-start;
+  }
+  .settings-header p {
+    max-width: 30ch;
+    line-height: 1.45;
+  }
+  .settings-actions {
+    position: sticky;
+    bottom: -18px;
+    padding: 12px 0 2px;
+    background: var(--panel);
+  }
+  .settings-btn-primary,
+  .settings-btn-secondary {
+    min-height: 44px;
+    justify-content: center;
+    flex: 1 1 0;
+    padding-inline: 10px;
+  }
+}
