@@ -217,7 +217,8 @@ function logConfig(config: ProviderConfig, lastRequest?: string) {
 
 function cleanBase64Image(image?: string | null) {
   if (!image) return null;
-  return image.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
+  if (/^data:image\/[a-zA-Z0-9.+-]+;base64,/i.test(image)) return image;
+  return "data:image/jpeg;base64," + image;
 }
 
 function cleanBase64Images(payload: ChatPayload) {
@@ -367,20 +368,28 @@ function proxyOllamaStream(response: Response) {
     new ReadableStream({
       async start(controller) {
         let buffer = "";
+        const consumeLine = (line: string) => {
+          if (!line.trim()) return;
+          try {
+            const json = JSON.parse(line);
+            const chunk = json?.message?.content || "";
+            if (chunk) controller.enqueue(encoder.encode(chunk));
+          } catch {
+            controller.enqueue(encoder.encode("\n\nThe Ollama stream returned an invalid data frame."));
+          }
+        };
+
         try {
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
+            const lines = buffer.split(/\r?\n/);
             buffer = lines.pop() || "";
-            for (const line of lines) {
-              if (!line.trim()) continue;
-              const json = JSON.parse(line);
-              const chunk = json?.message?.content || "";
-              if (chunk) controller.enqueue(encoder.encode(chunk));
-            }
+            for (const line of lines) consumeLine(line);
           }
+          buffer += decoder.decode();
+          if (buffer.trim()) consumeLine(buffer);
         } catch {
           controller.enqueue(encoder.encode("\n\nThe stream stopped unexpectedly. Please retry."));
         } finally {
@@ -388,7 +397,7 @@ function proxyOllamaStream(response: Response) {
         }
       }
     }),
-    { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } }
+    { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" } }
   );
 }
 
