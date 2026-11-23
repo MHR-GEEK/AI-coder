@@ -67,7 +67,7 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
     model: "deepseek-ai/deepseek-v4-flash",
     visionModel: "nvidia/nemotron-3.5-super-vl-120b-a12b",
     mode: "openai",
-    keyNames: ["NVIDIA_API_KEY", "AI_API_KEY"],
+    keyNames: ["NVIDIA_API_KEY"],
     requiredKey: "NVIDIA_API_KEY"
   },
   gemini: {
@@ -156,11 +156,11 @@ function getConfig(payload?: ChatPayload): ProviderConfig {
   const provider = normalizeProvider(payload?.settings?.provider || process.env.AI_PROVIDER || process.env.OLLAMA_PROVIDER || "nvidia");
   const defaults = DEFAULTS[provider];
   const baseUrl = normalizeBaseUrl(
-    process.env.AI_BASE_URL ||
-      process.env[`${provider.toUpperCase().replace("-", "_")}_BASE_URL`] ||
+    process.env[`${provider.toUpperCase().replace("-", "_")}_BASE_URL`] ||
+      payload?.settings?.baseUrl ||
+      process.env.AI_BASE_URL ||
       process.env.OPENAI_BASE_URL ||
       process.env.OLLAMA_BASE_URL ||
-      payload?.settings?.baseUrl ||
       defaults.baseUrl
   );
   const apiKey = readFirstEnv(defaults.keyNames) || payload?.settings?.apiKey?.trim() || undefined;
