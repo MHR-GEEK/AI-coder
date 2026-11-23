@@ -1,106 +1,71 @@
-<div align="center">
-
 # HARYX AI Coder
 
-### Advanced AI Coding Workspace & Assistant
+A responsive Next.js AI coding workspace with streaming chat, code generation, debugging, image understanding, and file attachments.
 
-Built with precision by **HARYX**.
+## Default provider: NVIDIA NIM
 
-<br>
+HARYX AI uses NVIDIA's OpenAI-compatible API by default:
 
-<img src="https://img.shields.io/badge/Groq-Ultra--Fast-orange?style=flat-square">
-<img src="https://img.shields.io/badge/Gemini-Multimodal-blue?style=flat-square">
-<img src="https://img.shields.io/badge/Ollama-Local-black?style=flat-square">
-<img src="https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=nextdotjs">
-<img src="https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript">
-<img src="https://img.shields.io/badge/TailwindCSS-4-38BDF8?style=flat-square&logo=tailwindcss">
-<img src="https://img.shields.io/badge/Vercel-Ready-black?style=flat-square&logo=vercel">
+- Base URL: `https://integrate.api.nvidia.com/v1`
+- Text model: `deepseek-ai/deepseek-v4-flash`
+- Vision model: `nvidia/nemotron-3.5-super-vl-120b-a12b`
+- Chat endpoint: `POST /v1/chat/completions`
 
-</div>
+Create an API key at [NVIDIA Build](https://build.nvidia.com/settings).
 
----
+### Vercel environment variables
 
-## Overview
+Add these in **Vercel → Project → Settings → Environment Variables**:
 
-**HARYX AI Coder** is a modern, responsive developer workspace and programming assistant. It supports cloud AI providers (Groq, Google Gemini, OpenRouter, OpenAI, Together) as well as local Ollama instances.
+```env
+AI_PROVIDER=nvidia
+NVIDIA_API_KEY=your_nvidia_api_key
+AI_BASE_URL=https://integrate.api.nvidia.com/v1
+AI_MODEL=deepseek-ai/deepseek-v4-flash
+AI_VISION_MODEL=nvidia/nemotron-3.5-super-vl-120b-a12b
+AI_TEMPERATURE=0.35
+AI_MAX_TOKENS=4096
+```
 
-Designed for high-speed streaming conversations, code generation, instant debugging, screenshot & image understanding, file parsing, and project workspaces.
+Set the key as a secret. Never commit a real API key to Git. Redeploy after changing production environment variables.
 
----
+You can also enter a personal provider key in the in-app Settings panel. The key is stored in that browser's local storage and sent only to this app's server route when a request is made.
 
-## Key Features
+## Other supported providers
 
-- **Multi-Provider Cloud & Local Support**:
-  - **Groq** (⚡ Recommended for Vercel — Ultra fast & free tier)
-  - **Google Gemini** (🌟 Multimodal vision & generous free tier)
-  - **OpenRouter** (🌐 Free and commercial OSS models)
-  - **OpenAI** (🤖 GPT-4o-mini, GPT-4o)
-  - **Together AI** (🚀 Fast open-source LLMs)
-  - **Ollama** (💻 Local inference or remote tunnels)
-  - **Custom OpenAI-Compatible** endpoints
-- **In-App AI Settings Modal**: Configure API keys, models, and endpoints directly in the browser with live connection testing.
-- **100% Fully Responsive**: Works across mobile phones, tablets, and desktop displays with an off-canvas drawer navigation.
-- **Smooth Streaming Response**: Optimized token streaming with throttled UI updates and zero-lag rendering.
-- **Multimodal & File Uploads**: Image vision analysis (screenshots, UI bugs) and text file context injection (.ts, .js, .py, .json, .md, etc.).
-- **Code Utilities**: Syntax highlighting, 1-click code copying, code downloading, and markdown chat export.
+The provider settings also support Groq, Google Gemini, OpenRouter, OpenAI, Together AI, Ollama, and custom OpenAI-compatible endpoints. Provider credentials are kept separate; an old generic key is never reused as an NVIDIA key.
 
----
-
-## Deploying to Vercel
-
-### Step 1: Deploy
-Push this repository to GitHub and import it into [Vercel](https://vercel.com).
-
-### Step 2: Configure Environment Variables
-In your **Vercel Project Settings > Environment Variables**, add one of the following:
-
-#### Option A: Groq (Recommended - Free & Fast)
-1. Get a free API key at [console.groq.com/keys](https://console.groq.com/keys).
-2. Add to Vercel:
-   ```env
-   AI_PROVIDER=groq
-   GROQ_API_KEY=gsk_your_groq_api_key_here
-   AI_MODEL=llama-3.3-70b-versatile
-   AI_VISION_MODEL=llama-3.2-11b-vision-preview
-   ```
-
-#### Option B: Google Gemini (Free Tier)
-1. Get a free API key at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).
-2. Add to Vercel:
-   ```env
-   AI_PROVIDER=gemini
-   GEMINI_API_KEY=AIzaSy_your_gemini_key_here
-   AI_MODEL=gemini-2.0-flash
-   AI_VISION_MODEL=gemini-2.0-flash
-   ```
-
-#### Option C: Client-Side Keys (No Env Vars Needed)
-Even if you do not set environment variables in Vercel, users can click the **Settings (⚙️)** icon in the header, select their provider, and paste their API key.
-
----
-
-## Local Development
+## Development
 
 ```bash
 git clone https://github.com/MHR-GEEK/AI-coder.git
 cd AI-coder
-
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000).
 
----
+Run the TypeScript check and production build:
 
-## Developer Attribution
+```bash
+npm run lint
+npm run build
+```
 
-Created by **HARYX**  
-- **GitHub**: [github.com/MHR-GEEK](https://github.com/MHR-GEEK)  
-- **Instagram**: [@md_haris_raza_](https://www.instagram.com/md_haris_raza_/)  
+## Features
 
----
+- Responsive desktop, tablet, and mobile layout
+- Streaming AI chat with stop and regenerate controls
+- Multiple conversations, folders, search, pinning, and favorites
+- Code copy/download utilities and Markdown rendering
+- Image uploads, screenshots, and text-file context
+- Browser voice input where supported
+- Provider connection testing and diagnostics
 
-<div align="center">
-Built by <strong>HARYX</strong>
-</div>
+## Developer
+
+Created by **HARYX**.
+
+- GitHub: [MHR-GEEK](https://github.com/MHR-GEEK)
+- Instagram: [@md_haris_raza_](https://www.instagram.com/md_haris_raza_/)
