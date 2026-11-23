@@ -166,8 +166,8 @@ function getConfig(payload?: ChatPayload): ProviderConfig {
   const apiKey = readFirstEnv(defaults.keyNames) || payload?.settings?.apiKey?.trim() || undefined;
   const textModel =
     payload?.settings?.model ||
-    process.env.AI_MODEL ||
     process.env[`${provider.toUpperCase().replace("-", "_")}_MODEL`] ||
+    process.env.AI_MODEL ||
     process.env.OPENAI_MODEL ||
     process.env.OLLAMA_MODEL ||
     defaults.model;
