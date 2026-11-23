@@ -133,7 +133,7 @@ function normalizeProvider(value?: string | null): Provider {
   if (provider === "nvidia" || provider === "gemini" || provider === "openai" || provider === "openrouter" || provider === "groq" || provider === "together" || provider === "openai-compatible" || provider === "ollama") {
     return provider;
   }
-  return "ollama";
+  return "nvidia";
 }
 
 function normalizeBaseUrl(baseUrl: string) {
