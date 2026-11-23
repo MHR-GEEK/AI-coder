@@ -137,7 +137,7 @@ const DB_VERSION = 1;
 const STORE_NAME = "conversations";
 const SETTINGS_STORAGE_KEY = "haryx-ai-coder-settings";
 
-type Provider = "groq" | "gemini" | "openrouter" | "openai" | "together" | "ollama" | "openai-compatible";
+type Provider = "nvidia" | "groq" | "gemini" | "openrouter" | "openai" | "together" | "ollama" | "openai-compatible";
 
 type AISettings = {
   provider: Provider;
@@ -161,6 +161,16 @@ const PROVIDER_INFO: Record<
     isFreeTier: boolean;
   }
 > = {
+  nvidia: {
+    name: "NVIDIA NIM",
+    badge: "🟢 NVIDIA NIM",
+    defaultModel: "deepseek-ai/deepseek-v4-flash",
+    defaultBaseUrl: "https://integrate.api.nvidia.com/v1",
+    keyPlaceholder: "nvapi-...",
+    getKeyUrl: "https://build.nvidia.com/settings",
+    getKeyLabel: "Get NVIDIA API key",
+    isFreeTier: true
+  },
   groq: {
     name: "Groq",
     badge: "⚡ Groq",
@@ -174,7 +184,7 @@ const PROVIDER_INFO: Record<
   gemini: {
     name: "Google Gemini",
     badge: "🌟 Gemini",
-    defaultModel: "gemini-2.0-flash",
+    defaultModel: "gemini-2.5-flash",
     defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     keyPlaceholder: "AIzaSy...",
     getKeyUrl: "https://aistudio.google.com/app/apikey",
@@ -234,10 +244,10 @@ const PROVIDER_INFO: Record<
 };
 
 const DEFAULT_AI_SETTINGS: AISettings = {
-  provider: "groq",
+  provider: "nvidia",
   apiKey: "",
-  model: "llama-3.3-70b-versatile",
-  baseUrl: "https://api.groq.com/openai/v1",
+  model: "deepseek-ai/deepseek-v4-flash",
+  baseUrl: "https://integrate.api.nvidia.com/v1",
   temperature: 0.35,
   maxTokens: 4096
 };
@@ -778,7 +788,21 @@ export default function Home() {
       const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (saved) {
         try {
-          return { ...DEFAULT_AI_SETTINGS, ...JSON.parse(saved) };
+          const parsed = JSON.parse(saved) as Partial<AISettings>;
+          const legacyNumesConfig =
+            parsed.provider === "openai-compatible" &&
+            typeof parsed.baseUrl === "string" &&
+            parsed.baseUrl.includes("numes.ai");
+          if (legacyNumesConfig) {
+            const migrated = {
+              ...DEFAULT_AI_SETTINGS,
+              temperature: parsed.temperature ?? DEFAULT_AI_SETTINGS.temperature,
+              maxTokens: parsed.maxTokens ?? DEFAULT_AI_SETTINGS.maxTokens
+            };
+            localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(migrated));
+            return migrated;
+          }
+          return { ...DEFAULT_AI_SETTINGS, ...parsed };
         } catch {}
       }
     }
@@ -1351,7 +1375,7 @@ export default function Home() {
           timestamp: Date.now(),
           content:
             error instanceof Error
-              ? `# Connection Issue\n\n${error.message}\n\n### How to Fix on Vercel:\n\n1. **Click the Settings (⚙️) icon** in the top header.\n2. Choose **Groq** (⚡ recommended) or **Google Gemini** (both have fast free tiers).\n3. Paste your API key and click **Save Settings**.\n\n*To enable it for all visitors, set \`GROQ_API_KEY\` or \`GEMINI_API_KEY\` in your Vercel Project Settings > Environment Variables.*`
+              ? `# Connection Issue\n\n${error.message}\n\n### How to Fix on Vercel:\n\n1. **Click the Settings (⚙️) icon** in the top header.\n2. Choose **NVIDIA NIM** or another supported provider.\n3. Paste your API key and click **Save Settings**.\n\n*To enable it for all visitors, set \`NVIDIA_API_KEY\` in Vercel Project Settings > Environment Variables.*`
               : "# Connection Issue\n\nThe AI backend could not be reached. Please check your AI Settings."
         }
       ]);
@@ -1741,7 +1765,8 @@ export default function Home() {
                     });
                   }}
                 >
-                  <option value="groq">Groq (⚡ Recommended - Ultra Fast & Free)</option>
+                  <option value="nvidia">NVIDIA NIM (🟢 Recommended - Default)</option>
+                  <option value="groq">Groq (⚡ Ultra Fast)</option>
                   <option value="gemini">Google Gemini (🌟 Fast Multimodal & Free)</option>
                   <option value="openrouter">OpenRouter (🌐 Free & Commercial models)</option>
                   <option value="openai">OpenAI (🤖 GPT-4o-mini / GPT-4o)</option>

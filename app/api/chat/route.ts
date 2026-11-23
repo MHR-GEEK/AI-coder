@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-type Provider = "ollama" | "openai" | "openrouter" | "groq" | "together" | "openai-compatible";
+type Provider = "nvidia" | "gemini" | "ollama" | "openai" | "openrouter" | "groq" | "together" | "openai-compatible";
 
 type ChatMessage = {
   role: "user" | "assistant" | "system";
@@ -25,6 +25,8 @@ type ChatPayload = {
   files?: UploadedFile[];
   settings?: {
     provider?: string;
+    apiKey?: string;
+    baseUrl?: string;
     model?: string;
     temperature?: number;
     maxTokens?: number;
@@ -60,12 +62,28 @@ When users ask "Who built this?", "Who made this?", or "Developer?", answer that
 Return clean markdown with short sections, readable spacing, tables when useful, and fenced code blocks.`;
 
 const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: string; mode: "ollama" | "openai"; keyNames: string[]; requiredKey?: string }> = {
+  nvidia: {
+    baseUrl: "https://integrate.api.nvidia.com/v1",
+    model: "deepseek-ai/deepseek-v4-flash",
+    visionModel: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    mode: "openai",
+    keyNames: ["NVIDIA_API_KEY"],
+    requiredKey: "NVIDIA_API_KEY"
+  },
+  gemini: {
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    model: "gemini-2.5-flash",
+    visionModel: "gemini-2.5-flash",
+    mode: "openai",
+    keyNames: ["GEMINI_API_KEY"],
+    requiredKey: "GEMINI_API_KEY"
+  },
   ollama: {
     baseUrl: "https://ollama.com",
     model: "gpt-oss:120b",
-    visionModel: "minimax-m3",
+    visionModel: "qwen3-vl:235b-cloud",
     mode: "ollama",
-    keyNames: ["OLLAMA_API_KEY", "AI_API_KEY"],
+    keyNames: ["OLLAMA_API_KEY"],
     requiredKey: "OLLAMA_API_KEY"
   },
   openai: {
@@ -73,7 +91,7 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
     model: "gpt-4.1-mini",
     visionModel: "gpt-4.1",
     mode: "openai",
-    keyNames: ["OPENAI_API_KEY", "AI_API_KEY"],
+    keyNames: ["OPENAI_API_KEY"],
     requiredKey: "OPENAI_API_KEY"
   },
   openrouter: {
@@ -81,7 +99,7 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
     model: "openai/gpt-4.1-mini",
     visionModel: "openai/gpt-4.1",
     mode: "openai",
-    keyNames: ["OPENROUTER_API_KEY", "AI_API_KEY"],
+    keyNames: ["OPENROUTER_API_KEY"],
     requiredKey: "OPENROUTER_API_KEY"
   },
   groq: {
@@ -89,7 +107,7 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
     model: "llama-3.3-70b-versatile",
     visionModel: "meta-llama/llama-4-scout-17b-16e-instruct",
     mode: "openai",
-    keyNames: ["GROQ_API_KEY", "AI_API_KEY"],
+    keyNames: ["GROQ_API_KEY"],
     requiredKey: "GROQ_API_KEY"
   },
   together: {
@@ -97,7 +115,7 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
     model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
     visionModel: "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
     mode: "openai",
-    keyNames: ["TOGETHER_API_KEY", "AI_API_KEY"],
+    keyNames: ["TOGETHER_API_KEY"],
     requiredKey: "TOGETHER_API_KEY"
   },
   "openai-compatible": {
@@ -111,11 +129,11 @@ const DEFAULTS: Record<Provider, { baseUrl: string; model: string; visionModel: 
 };
 
 function normalizeProvider(value?: string | null): Provider {
-  const provider = (value || "ollama").toLowerCase().trim();
-  if (provider === "openai" || provider === "openrouter" || provider === "groq" || provider === "together" || provider === "openai-compatible" || provider === "ollama") {
+  const provider = (value || "nvidia").toLowerCase().trim();
+  if (provider === "nvidia" || provider === "gemini" || provider === "openai" || provider === "openrouter" || provider === "groq" || provider === "together" || provider === "openai-compatible" || provider === "ollama") {
     return provider;
   }
-  return "ollama";
+  return "nvidia";
 }
 
 function normalizeBaseUrl(baseUrl: string) {
@@ -135,26 +153,27 @@ function isLocalBaseUrl(baseUrl: string) {
 }
 
 function getConfig(payload?: ChatPayload): ProviderConfig {
-  const provider = normalizeProvider(payload?.settings?.provider || process.env.AI_PROVIDER || process.env.OLLAMA_PROVIDER);
+  const provider = normalizeProvider(payload?.settings?.provider || process.env.AI_PROVIDER || process.env.OLLAMA_PROVIDER || "nvidia");
   const defaults = DEFAULTS[provider];
   const baseUrl = normalizeBaseUrl(
-    process.env.AI_BASE_URL ||
-      process.env[`${provider.toUpperCase().replace("-", "_")}_BASE_URL`] ||
+    process.env[`${provider.toUpperCase().replace("-", "_")}_BASE_URL`] ||
+      payload?.settings?.baseUrl ||
+      process.env.AI_BASE_URL ||
       process.env.OPENAI_BASE_URL ||
       process.env.OLLAMA_BASE_URL ||
       defaults.baseUrl
   );
-  const apiKey = readFirstEnv(defaults.keyNames);
+  const apiKey = readFirstEnv(defaults.keyNames) || payload?.settings?.apiKey?.trim() || undefined;
   const textModel =
     payload?.settings?.model ||
-    process.env.AI_MODEL ||
     process.env[`${provider.toUpperCase().replace("-", "_")}_MODEL`] ||
+    process.env.AI_MODEL ||
     process.env.OPENAI_MODEL ||
     process.env.OLLAMA_MODEL ||
     defaults.model;
   const visionModel =
-    process.env.AI_VISION_MODEL ||
     process.env[`${provider.toUpperCase().replace("-", "_")}_VISION_MODEL`] ||
+    (provider === "nvidia" ? process.env.AI_VISION_MODEL : undefined) ||
     process.env.OPENAI_VISION_MODEL ||
     process.env.OLLAMA_VISION_MODEL ||
     defaults.visionModel;
@@ -198,7 +217,8 @@ function logConfig(config: ProviderConfig, lastRequest?: string) {
 
 function cleanBase64Image(image?: string | null) {
   if (!image) return null;
-  return image.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
+  if (/^data:image\/[a-zA-Z0-9.+-]+;base64,/i.test(image)) return image;
+  return "data:image/jpeg;base64," + image;
 }
 
 function cleanBase64Images(payload: ChatPayload) {
@@ -207,15 +227,15 @@ function cleanBase64Images(payload: ChatPayload) {
 }
 
 function apiChatUrl(baseUrl: string) {
-  if (baseUrl.endsWith("/api")) return `${baseUrl}/chat`;
-  if (baseUrl.endsWith("/v1")) return `${baseUrl.replace(/\/v1$/, "")}/api/chat`;
-  return `${baseUrl}/api/chat`;
+  const normalized = baseUrl.replace(/\/v1$/, "").replace(/\/$/, "");
+  if (normalized.endsWith("/api")) return normalized + "/chat";
+  return normalized + "/api/chat";
 }
 
 function openAiChatUrl(baseUrl: string) {
-  if (baseUrl.endsWith("/v1")) return `${baseUrl}/chat/completions`;
-  if (baseUrl.endsWith("/api")) return `${baseUrl.replace(/\/api$/, "")}/v1/chat/completions`;
-  return `${baseUrl}/v1/chat/completions`;
+  if (baseUrl.endsWith("/v1") || baseUrl.endsWith("/openai")) return baseUrl + "/chat/completions";
+  if (baseUrl.endsWith("/api")) return baseUrl.replace(/\/api$/, "") + "/v1/chat/completions";
+  return baseUrl + "/v1/chat/completions";
 }
 
 function authHeaders(config: ProviderConfig) {
@@ -265,7 +285,7 @@ function buildOpenAiMessages(messages: ChatMessage[], images: string[]) {
       role: message.role,
       content: [
         { type: "text", text: message.content },
-        ...images.map((image) => ({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${image}` } }))
+        ...images.map((image) => ({ type: "image_url", image_url: { url: image } }))
       ]
     };
   });
@@ -309,12 +329,18 @@ function streamText(text: string, init?: ResponseInit) {
 
 async function providerStream(config: ProviderConfig, messages: ChatMessage[], images: string[], model: string) {
   if (config.mode === "ollama") {
+    const ollamaMessages = messages.map((message) => ({
+      ...message,
+      ...(message.images?.length
+        ? { images: message.images.map((image) => image.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/i, "")) }
+        : {})
+    }));
     return fetch(apiChatUrl(config.baseUrl), {
       method: "POST",
       headers: authHeaders(config),
       body: JSON.stringify({
         model,
-        messages,
+        messages: ollamaMessages,
         stream: true,
         options: {
           temperature: config.temperature,
@@ -348,20 +374,28 @@ function proxyOllamaStream(response: Response) {
     new ReadableStream({
       async start(controller) {
         let buffer = "";
+        const consumeLine = (line: string) => {
+          if (!line.trim()) return;
+          try {
+            const json = JSON.parse(line);
+            const chunk = json?.message?.content || "";
+            if (chunk) controller.enqueue(encoder.encode(chunk));
+          } catch {
+            controller.enqueue(encoder.encode("\n\nThe Ollama stream returned an invalid data frame."));
+          }
+        };
+
         try {
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
+            const lines = buffer.split(/\r?\n/);
             buffer = lines.pop() || "";
-            for (const line of lines) {
-              if (!line.trim()) continue;
-              const json = JSON.parse(line);
-              const chunk = json?.message?.content || "";
-              if (chunk) controller.enqueue(encoder.encode(chunk));
-            }
+            for (const line of lines) consumeLine(line);
           }
+          buffer += decoder.decode();
+          if (buffer.trim()) consumeLine(buffer);
         } catch {
           controller.enqueue(encoder.encode("\n\nThe stream stopped unexpectedly. Please retry."));
         } finally {
@@ -369,7 +403,7 @@ function proxyOllamaStream(response: Response) {
         }
       }
     }),
-    { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } }
+    { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" } }
   );
 }
 
@@ -382,23 +416,32 @@ function proxyOpenAiStream(response: Response) {
     new ReadableStream({
       async start(controller) {
         let buffer = "";
+        const consumeLine = (rawLine: string) => {
+          const line = rawLine.trim();
+          if (!line.startsWith("data:")) return;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") return;
+          try {
+            const json = JSON.parse(payload);
+            const delta = json?.choices?.[0]?.delta;
+            const chunk = typeof delta?.content === "string" ? delta.content : "";
+            if (chunk) controller.enqueue(encoder.encode(chunk));
+          } catch {
+            // Ignore malformed keep-alive or provider metadata frames.
+          }
+        };
+
         try {
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
+            const lines = buffer.split(/\r?\n/);
             buffer = lines.pop() || "";
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed.startsWith("data:")) continue;
-              const payload = trimmed.replace(/^data:\s*/, "");
-              if (payload === "[DONE]") continue;
-              const json = JSON.parse(payload);
-              const chunk = json?.choices?.[0]?.delta?.content || "";
-              if (chunk) controller.enqueue(encoder.encode(chunk));
-            }
+            for (const line of lines) consumeLine(line);
           }
+          buffer += decoder.decode();
+          if (buffer.trim()) consumeLine(buffer);
         } catch {
           controller.enqueue(encoder.encode("\n\nThe stream stopped unexpectedly. Please retry."));
         } finally {
@@ -406,7 +449,7 @@ function proxyOpenAiStream(response: Response) {
         }
       }
     }),
-    { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } }
+    { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" } }
   );
 }
 

@@ -2,55 +2,65 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-type Provider = "ollama" | "openai" | "openrouter" | "groq" | "together" | "openai-compatible";
+type Provider = "nvidia" | "gemini" | "ollama" | "openai" | "openrouter" | "groq" | "together" | "openai-compatible";
 
-const PROVIDERS: Record<Provider, { key: string; baseUrl: string; model: string }> = {
-  ollama: { key: "OLLAMA_API_KEY", baseUrl: "https://ollama.com", model: "gpt-oss:120b" },
-  openai: { key: "OPENAI_API_KEY", baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
-  openrouter: { key: "OPENROUTER_API_KEY", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4.1-mini" },
-  groq: { key: "GROQ_API_KEY", baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile" },
-  together: { key: "TOGETHER_API_KEY", baseUrl: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
-  "openai-compatible": { key: "AI_API_KEY", baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini" }
+const PROVIDERS: Record<Provider, { key: string; baseUrl: string; model: string; visionModel: string }> = {
+  nvidia: {
+    key: "NVIDIA_API_KEY",
+    baseUrl: "https://integrate.api.nvidia.com/v1",
+    model: "deepseek-ai/deepseek-v4-flash",
+    visionModel: "nvidia/nemotron-3.5-super-vl-120b-a12b"
+  },
+  gemini: {
+    key: "GEMINI_API_KEY",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    model: "gemini-2.5-flash",
+    visionModel: "gemini-2.5-flash"
+  },
+  ollama: { key: "OLLAMA_API_KEY", baseUrl: "https://ollama.com", model: "gpt-oss:120b", visionModel: "qwen3-vl:235b-cloud" },
+  openai: { key: "OPENAI_API_KEY", baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini", visionModel: "gpt-4.1" },
+  openrouter: { key: "OPENROUTER_API_KEY", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4.1-mini", visionModel: "openai/gpt-4.1" },
+  groq: { key: "GROQ_API_KEY", baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", visionModel: "meta-llama/llama-4-scout-17b-16e-instruct" },
+  together: { key: "TOGETHER_API_KEY", baseUrl: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo", visionModel: "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo" },
+  "openai-compatible": { key: "AI_API_KEY", baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini", visionModel: "gpt-4.1" }
 };
 
 function providerFromEnv(): Provider {
-  const raw = (process.env.AI_PROVIDER || "ollama").toLowerCase();
-  if (raw === "openai" || raw === "openrouter" || raw === "groq" || raw === "together" || raw === "openai-compatible" || raw === "ollama") return raw;
-  return "ollama";
+  const raw = (process.env.AI_PROVIDER || "nvidia").toLowerCase().trim();
+  if (raw in PROVIDERS) return raw as Provider;
+  return "nvidia";
 }
 
 function isLocalOllama(baseUrl: string) {
-  return baseUrl.includes("127.0.0.1") || baseUrl.includes("localhost") || baseUrl.includes("::1");
+  return /localhost|127\.0\.0\.1|::1/i.test(baseUrl);
 }
 
 export async function GET() {
   const started = Date.now();
   const provider = providerFromEnv();
   const defaults = PROVIDERS[provider];
-  const providerPrefix = provider.toUpperCase().replace("-", "_");
-  const baseUrl = process.env.AI_BASE_URL || process.env[`${providerPrefix}_BASE_URL`] || process.env.OLLAMA_BASE_URL || defaults.baseUrl;
-  const model = process.env.AI_MODEL || process.env[`${providerPrefix}_MODEL`] || process.env.OLLAMA_MODEL || defaults.model;
-  const requiredKey = defaults.key;
-  const hasApiKey = Boolean(process.env[requiredKey] || process.env.AI_API_KEY);
-  const missing = !hasApiKey && !(provider === "ollama" && isLocalOllama(baseUrl)) ? [requiredKey] : [];
+  const prefix = provider.toUpperCase().replace(/-/g, "_");
+  const baseUrl = process.env[`${prefix}_BASE_URL`] || process.env.AI_BASE_URL || defaults.baseUrl;
+  const model = process.env[`${prefix}_MODEL`] || process.env.AI_MODEL || defaults.model;
+  const visionModel = process.env[`${prefix}_VISION_MODEL`] || (provider === "nvidia" ? process.env.AI_VISION_MODEL : undefined) || defaults.visionModel;
+  const hasApiKey = Boolean(process.env[defaults.key] || (provider === "openai-compatible" && process.env.AI_API_KEY));
+  const missing = !hasApiKey && !(provider === "ollama" && isLocalOllama(baseUrl)) ? [defaults.key] : [];
+  const configured = missing.length === 0;
 
   console.info("[HARYX AI] status route", {
-    provider,
-    baseUrl,
-    model,
-    requiredKey,
-    hasApiKey,
-    missing,
+    provider, baseUrl, model, visionModel, hasApiKey, missing,
     deployment: process.env.VERCEL ? "vercel" : process.env.NODE_ENV || "local"
   });
 
   return NextResponse.json({
     provider,
     currentModel: model,
-    apiStatus: missing.length ? "missing-configuration" : "configured",
+    visionModel,
+    apiStatus: configured ? "configured" : "missing-configuration",
+    configured,
     responseTime: Date.now() - started,
     missing,
-    requiredKey,
+    requiredKey: defaults.key,
     hasApiKey,
     baseUrl,
     buildVersion: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || "local",
