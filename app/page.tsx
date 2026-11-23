@@ -788,7 +788,21 @@ export default function Home() {
       const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (saved) {
         try {
-          return { ...DEFAULT_AI_SETTINGS, ...JSON.parse(saved) };
+          const parsed = JSON.parse(saved) as Partial<AISettings>;
+          const legacyNumesConfig =
+            parsed.provider === "openai-compatible" &&
+            typeof parsed.baseUrl === "string" &&
+            parsed.baseUrl.includes("numes.ai");
+          if (legacyNumesConfig) {
+            const migrated = {
+              ...DEFAULT_AI_SETTINGS,
+              temperature: parsed.temperature ?? DEFAULT_AI_SETTINGS.temperature,
+              maxTokens: parsed.maxTokens ?? DEFAULT_AI_SETTINGS.maxTokens
+            };
+            localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(migrated));
+            return migrated;
+          }
+          return { ...DEFAULT_AI_SETTINGS, ...parsed };
         } catch {}
       }
     }
@@ -1361,7 +1375,7 @@ export default function Home() {
           timestamp: Date.now(),
           content:
             error instanceof Error
-              ? `# Connection Issue\n\n${error.message}\n\n### How to Fix on Vercel:\n\n1. **Click the Settings (⚙️) icon** in the top header.\n2. Choose **Groq** (⚡ recommended) or **Google Gemini** (both have fast free tiers).\n3. Paste your API key and click **Save Settings**.\n\n*To enable it for all visitors, set \`NVIDIA_API_KEY\` in Vercel Project Settings > Environment Variables.*`
+              ? `# Connection Issue\n\n${error.message}\n\n### How to Fix on Vercel:\n\n1. **Click the Settings (⚙️) icon** in the top header.\n2. Choose **NVIDIA NIM** or another supported provider.\n3. Paste your API key and click **Save Settings**.\n\n*To enable it for all visitors, set \`NVIDIA_API_KEY\` in Vercel Project Settings > Environment Variables.*`
               : "# Connection Issue\n\nThe AI backend could not be reached. Please check your AI Settings."
         }
       ]);
