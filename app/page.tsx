@@ -184,7 +184,7 @@ const PROVIDER_INFO: Record<
   gemini: {
     name: "Google Gemini",
     badge: "🌟 Gemini",
-    defaultModel: "gemini-2.0-flash",
+    defaultModel: "gemini-2.5-flash",
     defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     keyPlaceholder: "AIzaSy...",
     getKeyUrl: "https://aistudio.google.com/app/apikey",
